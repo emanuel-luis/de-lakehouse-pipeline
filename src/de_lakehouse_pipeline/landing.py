@@ -107,6 +107,31 @@ def validate(raw: pl.DataFrame, contract: TableContract) -> ValidationResult:
     return ValidationResult(valid=valid, rejects=rejects)
 
 
+def after_watermark(
+    raw: pl.DataFrame, contract: TableContract, watermark: datetime
+) -> pl.DataFrame:
+    """Keep the raw rows whose incremental value is after ``watermark`` or cannot be computed.
+
+    The value is computed best effort with the same casts as :func:`validate`, so a row that
+    validation would reject still reaches it (and its reject file) unless it is provably old.
+
+    Args:
+        raw: Output of :func:`read_source_csv`.
+        contract: Table contract with an ``incremental_column``.
+        watermark: Latest committed value of the incremental column.
+
+    Returns:
+        The slice of ``raw``, unchanged text rows.
+    """
+    assert contract.incremental_column is not None
+    value = (
+        raw.with_columns(**{c: _typed(c, d) for c, d in contract.columns.items()})
+        .with_columns(**contract.derived)
+        .get_column(contract.incremental_column)
+    )
+    return raw.filter((value > watermark).fill_null(True))
+
+
 def write_landing(
     df: pl.DataFrame,
     landing_dir: Path,

@@ -60,3 +60,32 @@ def test_kaggle_without_token_exits_1_without_traceback(
 def test_invalid_env_exits_1(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DATA_SOURCE", "nope")
     assert main(["summary"]) == 1
+
+
+def test_cdc_simulate_incremental_ingest_and_watermarks(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("LAKEHOUSE_DATA_DIR", str(tmp_path))
+    assert main(["source", "--orders", "300"]) == 0
+    assert main(["ingest", "--tables", "orders"]) == 0
+    assert main(["cdc", "simulate", "--changes", "5", "--new-orders", "2", "--seed", "1"]) == 0
+    assert "new orders 2" in capsys.readouterr().out
+    assert main(["ingest", "--tables", "orders", "--mode", "incremental"]) == 0
+    assert list((tmp_path / "landing" / "orders").glob("batch-*.parquet"))
+    assert main(["summary", "--watermarks"]) == 0
+    out = capsys.readouterr().out
+    assert "incremental" in out
+    assert "order_updated_at = " in out
+
+
+def test_cdc_simulate_without_source_exits_1(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("LAKEHOUSE_DATA_DIR", str(tmp_path))
+    assert main(["cdc", "simulate"]) == 1
+
+
+def test_cdc_negative_count_is_a_usage_error() -> None:
+    with pytest.raises(SystemExit) as exc:
+        main(["cdc", "simulate", "--changes", "-1"])
+    assert exc.value.code == 2
