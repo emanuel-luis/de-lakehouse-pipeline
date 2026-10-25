@@ -33,8 +33,16 @@ def test_summary_with_run_and_marts(settings: Settings) -> None:
     ingest(settings, ["sellers"])
     settings.warehouse_path.parent.mkdir(parents=True, exist_ok=True)
     con = duckdb.connect(str(settings.warehouse_path))
-    con.execute("create schema marts; create table marts.fct_orders as select 1 as x")
+    con.execute(
+        "create schema marts; create schema bronze;"
+        " create table marts.fct_orders as select 1 as x;"
+        " create table marts.dim_dates as select * from range(3) t(x);"
+        " create table bronze.bronze_orders as select 1 as x"
+    )
     con.close()
     text = summarize(settings)
     assert "sellers" in text
     assert "fct_orders" in text
+    assert "dim_dates" in text
+    assert "bronze_orders" not in text  # only the marts schema is listed
+    assert text.index("dim_dates") < text.index("fct_orders")  # sorted by name
