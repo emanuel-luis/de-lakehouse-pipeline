@@ -49,7 +49,7 @@ def _cols(
     return MappingProxyType(dtypes)
 
 
-_LIFECYCLE = (
+LIFECYCLE_COLUMNS = (
     "order_purchase_timestamp",
     "order_approved_at",
     "order_delivered_carrier_date",
@@ -96,7 +96,7 @@ _CONTRACT_LIST: Final = (
         "order_status",
         "order_purchase_timestamp",
         # Olist has no update column: the latest lifecycle timestamp stands in for it.
-        derived={"order_updated_at": pl.max_horizontal(*_LIFECYCLE).cast(TS)},
+        derived={"order_updated_at": pl.max_horizontal(*LIFECYCLE_COLUMNS).cast(TS)},
         incremental_column="order_updated_at",
     ),
     _contract(
