@@ -144,7 +144,7 @@ The DAG `lakehouse_pipeline` (`@hourly`, one active run at a time, no catchup) r
 1. `lakehouse source --if-missing`: writes the synthetic source only when it does not exist yet.
 2. `lakehouse cdc simulate`: changes the source.
 3. `lakehouse ingest --mode incremental`: lands the rows past the watermark.
-4. A Cosmos task group built from the dbt manifest: one Airflow task per model and per test.
+4. A Cosmos task group built from the dbt manifest: one Airflow task per model and one for its tests. A test that reads two models, such as a relationships test between a fact and a dimension, gets its own task that waits for both, as `dbt build` would.
 
 Like any Airflow DAG, it starts paused. Unpause it in the UI, trigger a run there, or use the CLI:
 
