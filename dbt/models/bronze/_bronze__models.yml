@@ -1,0 +1,321 @@
+version: 2
+
+# Bronze: one deduplicated, deterministic row per natural key (latest _batch_id wins).
+# Uniqueness is asserted here, not in staging, because the landing data keeps duplicates.
+models:
+  - name: bronze_orders
+    description: >
+      Orders deduplicated on order_id (latest _batch_id, then latest order_updated_at). Grain: one
+      row per order_id.
+    columns:
+      - name: order_id
+        description: Order identifier, primary key.
+        data_tests:
+          - unique
+          - not_null
+      - name: customer_id
+        description: Per-order customer key, joins to bronze_customers.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('bronze_customers')
+                field: customer_id
+      - name: order_status
+        description: Lifecycle status, lower-cased.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - created
+                  - approved
+                  - invoiced
+                  - processing
+                  - shipped
+                  - delivered
+                  - unavailable
+                  - canceled
+      - name: order_purchase_timestamp
+        description: When the order was placed (source local time).
+        data_tests:
+          - not_null
+      - name: order_approved_at
+        description: When payment was approved, null until approved.
+      - name: order_delivered_carrier_date
+        description: When the order was handed to the carrier, null until then.
+      - name: order_delivered_customer_date
+        description: When the customer received the order, null until then.
+      - name: order_estimated_delivery_date
+        description: Delivery date promised to the customer.
+      - name: order_updated_at
+        description: Latest non-null lifecycle timestamp, derived at landing.
+      - &c_batch
+        name: _batch_id
+        description: Ingest run that wrote the row.
+      - &c_extracted
+        name: _extracted_at
+        description: When the row was extracted from the source (UTC).
+      - &c_file
+        name: _source_file
+        description: Source file the row came from.
+
+  - name: bronze_order_items
+    description: >-
+      Order lines deduplicated on (order_id, order_item_id). Grain: one row per order line.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - order_id
+              - order_item_id
+    columns:
+      - name: order_id
+        description: Order the line belongs to.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('bronze_orders')
+                field: order_id
+      - name: order_item_id
+        description: Line number within the order, starting at 1.
+        data_tests:
+          - not_null
+      - name: product_id
+        description: Product sold.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('bronze_products')
+                field: product_id
+      - name: seller_id
+        description: Seller who sold the line.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('bronze_sellers')
+                field: seller_id
+      - name: shipping_limit_date
+        description: Latest date the seller may hand the item to the carrier.
+      - name: price
+        description: Item price.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: freight_value
+        description: Freight charged for the line.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - *c_batch
+      - *c_extracted
+      - *c_file
+
+  - name: bronze_customers
+    description: >-
+      Customers deduplicated on customer_id. Grain: one row per customer_id (one per order).
+    columns:
+      - name: customer_id
+        description: Per-order customer key, primary key.
+        data_tests:
+          - unique
+          - not_null
+      - name: customer_unique_id
+        description: Stable identifier of the person across orders.
+        data_tests:
+          - not_null
+      - name: customer_zip_code_prefix
+        description: Zip code prefix, 5 characters.
+      - name: customer_city
+        description: City, trimmed and lower-cased.
+      - name: customer_state
+        description: State code, upper-cased.
+      - *c_batch
+      - *c_extracted
+      - *c_file
+
+  - name: bronze_products
+    description: >-
+      Products deduplicated on product_id. Grain: one row per product_id.
+    columns:
+      - name: product_id
+        description: Product identifier, primary key.
+        data_tests:
+          - unique
+          - not_null
+      - name: product_category_name
+        description: Category in Portuguese, lower-cased; null for some products.
+      - name: product_name_length
+        description: Characters in the product name.
+      - name: product_description_length
+        description: Characters in the product description.
+      - name: product_photos_qty
+        description: Number of published photos.
+      - name: product_weight_g
+        description: Weight in grams.
+      - name: product_length_cm
+        description: Package length in centimeters.
+      - name: product_height_cm
+        description: Package height in centimeters.
+      - name: product_width_cm
+        description: Package width in centimeters.
+      - *c_batch
+      - *c_extracted
+      - *c_file
+
+  - name: bronze_sellers
+    description: >-
+      Sellers deduplicated on seller_id. Grain: one row per seller_id.
+    columns:
+      - name: seller_id
+        description: Seller identifier, primary key.
+        data_tests:
+          - unique
+          - not_null
+      - name: seller_zip_code_prefix
+        description: Zip code prefix, 5 characters.
+      - name: seller_city
+        description: City, trimmed and lower-cased.
+      - name: seller_state
+        description: State code, upper-cased.
+      - *c_batch
+      - *c_extracted
+      - *c_file
+
+  - name: bronze_reviews
+    description: >
+      Reviews deduplicated on (review_id, order_id), because review_id alone repeats across
+      orders. Grain: one row per (review_id, order_id).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - review_id
+              - order_id
+    columns:
+      - name: review_id
+        description: Review identifier; unique only together with order_id.
+        data_tests:
+          - not_null
+      - name: order_id
+        description: Reviewed order.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('bronze_orders')
+                field: order_id
+      - name: review_score
+        description: Satisfaction score from 1 to 5.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                max_value: 5
+      - name: review_comment_title
+        description: Optional comment title.
+      - name: review_comment_message
+        description: Optional comment text.
+      - name: review_creation_date
+        description: When the satisfaction survey was sent.
+      - name: review_answer_timestamp
+        description: When the survey was answered.
+      - *c_batch
+      - *c_extracted
+      - *c_file
+
+  - name: bronze_payments
+    description: >-
+      Payments deduplicated on (order_id, payment_sequential). Grain: one row per payment.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - order_id
+              - payment_sequential
+    columns:
+      - name: order_id
+        description: Order the payment belongs to.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('bronze_orders')
+                field: order_id
+      - name: payment_sequential
+        description: Payment number within the order, starting at 1.
+        data_tests:
+          - not_null
+      - name: payment_type
+        description: Payment method, lower-cased.
+      - name: payment_installments
+        description: Number of installments chosen.
+      - name: payment_value
+        description: Amount paid in this payment.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - *c_batch
+      - *c_extracted
+      - *c_file
+
+  - name: bronze_geolocation
+    description: >
+      Geolocation collapsed to one row per zip prefix: coordinates are the average over the
+      source rows (rounded to 6 decimals), city and state the most frequent pair with ties going to
+      the alphabetically first. Metadata columns hold the latest value per zip prefix. Grain: one
+      row per geolocation_zip_code_prefix.
+    columns:
+      - name: geolocation_zip_code_prefix
+        description: Zip code prefix, 5 characters, primary key.
+        data_tests:
+          - unique
+          - not_null
+      - name: geolocation_lat
+        description: Average latitude in degrees.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: -90
+                max_value: 90
+      - name: geolocation_lng
+        description: Average longitude in degrees.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: -180
+                max_value: 180
+      - name: geolocation_city
+        description: Most frequent city for the zip prefix, lower-cased.
+      - name: geolocation_state
+        description: Most frequent state for the zip prefix, upper-cased.
+      - *c_batch
+      - *c_extracted
+      - *c_file
+
+  - name: bronze_category_translation
+    description: >-
+      Category translations deduplicated on product_category_name. Grain: one row per Portuguese category name.
+    columns:
+      - name: product_category_name
+        description: Category in Portuguese, primary key.
+        data_tests:
+          - unique
+          - not_null
+      - name: product_category_name_english
+        description: Category in English.
+        data_tests:
+          - not_null
+      - *c_batch
+      - *c_extracted
+      - *c_file
