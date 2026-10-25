@@ -175,7 +175,7 @@ CI green on lint, test, pipeline, pip-audit and zizmor. Kaggle is a manual check
 
 - Staging for products, sellers, reviews, payments, geolocation, category_translation.
 - `bronze_*` for the 9 tables (`table`): `row_number()` over the PK ordered by `_batch_id desc`
-  (orders also by `order_updated_at desc`); `bronze_geolocation` collapses to one row per zip
+  (orders also by `order_updated_at desc`), then the remaining columns as tie-breakers; `bronze_geolocation` collapses to one row per zip
   prefix (avg lat/lng, most frequent city/state); reviews keyed on (`review_id`, `order_id`); each
   keeps `_batch_id`, `_extracted_at`, `_source_file`.
 - Intermediate: `int_order_items_enriched` (one row per item with product, translated category —
@@ -201,8 +201,8 @@ CI green on lint, test, pipeline, pip-audit and zizmor. Kaggle is a manual check
 - CLI: `cdc simulate`, `ingest --mode incremental`, `summary --watermarks`.
 - `bronze_orders` incremental: `delete+insert`, `unique_key='order_id'`, `on_schema_change='fail'`,
   filter `_batch_id > (select coalesce(max(_batch_id), '') from {{ this }})`, dedup inside the
-  slice. The uniqueness test on `stg_olist__orders` moves to `bronze_orders` (staging becomes a
-  change log).
+  slice. Staging already asserts no uniqueness since PR2 (DECISIONS 11), so it can become a
+  change log without test changes.
 - `make cdc-demo`: demo → summary → simulate (50 changes, 20 new) → incremental ingest →
   `dbt build` → summary (+20 orders, changed statuses, new watermark) → incremental ingest again
   (0 rows) → `dbt build` → identical summary.
