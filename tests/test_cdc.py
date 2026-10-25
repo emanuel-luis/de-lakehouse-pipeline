@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from de_lakehouse_pipeline.cdc import simulate
-from de_lakehouse_pipeline.contracts import _LIFECYCLE, CONTRACTS
+from de_lakehouse_pipeline.contracts import CONTRACTS, LIFECYCLE_COLUMNS
 from de_lakehouse_pipeline.landing import read_source_csv, validate
 from de_lakehouse_pipeline.settings import Settings
 from de_lakehouse_pipeline.sources import prepare_source
@@ -31,7 +31,7 @@ def _max_lifecycle(source: Path) -> datetime:
     return max(
         datetime.fromisoformat(row[c])
         for row in _rows(source, "orders")
-        for c in _LIFECYCLE
+        for c in LIFECYCLE_COLUMNS
         if row[c]
     )
 

@@ -22,11 +22,11 @@ Row = list[str]
 Rows = dict[str, list[Row]]
 
 
-def _id(rng: random.Random) -> str:
+def new_id(rng: random.Random) -> str:
     return f"{rng.getrandbits(128):032x}"
 
 
-def _ts(moment: datetime) -> str:
+def format_ts(moment: datetime) -> str:
     return moment.strftime(TIMESTAMP_FORMAT)
 
 
@@ -74,7 +74,7 @@ def _products(rng: random.Random, count: int) -> list[Row]:
             else ["", "", ""]
         )
         measures = [str(rng.randint(50, 20000))] + [str(rng.randint(5, 100)) for _ in range(3)]
-        rows.append([_id(rng), category, *described, *measures])
+        rows.append([new_id(rng), category, *described, *measures])
     return rows
 
 
@@ -83,8 +83,8 @@ def _generate_rows(orders: int, seed: int) -> Rows:
     zips = [str(z) for z in rng.sample(range(1000, 99999), max(10, orders // 4))]  # not padded
     geo, place = _geolocation(rng, zips)
 
-    uniques = [_id(rng) for _ in range(max(1, int(orders * 0.8)))]
-    customer_ids = [_id(rng) for _ in range(orders)]
+    uniques = [new_id(rng) for _ in range(max(1, int(orders * 0.8)))]
+    customer_ids = [new_id(rng) for _ in range(orders)]
     customers: list[Row] = []
     for i, customer_id in enumerate(customer_ids):
         zip_prefix = rng.choice(zips)
@@ -97,7 +97,7 @@ def _generate_rows(orders: int, seed: int) -> Rows:
     for i in range(max(5, orders // 30)):
         zip_prefix = rng.choice(zips)
         city, uf = place[zip_prefix]
-        sellers.append([_id(rng), zip_prefix, _dirty_city(rng, city, i), uf])
+        sellers.append([new_id(rng), zip_prefix, _dirty_city(rng, city, i), uf])
 
     products = _products(rng, max(30, orders // 3))
     unfulfilled = set(rng.sample(range(orders), max(1, orders // 100)))  # orders without items
@@ -111,7 +111,7 @@ def _generate_rows(orders: int, seed: int) -> Rows:
     payments: list[Row] = []
     reviews: list[Row] = []
     for i, customer_id in enumerate(customer_ids):
-        order_id = _id(rng)
+        order_id = new_id(rng)
         status = (
             rng.choice(v.UNFULFILLED)
             if i in unfulfilled
@@ -128,11 +128,11 @@ def _generate_rows(orders: int, seed: int) -> Rows:
                 order_id,
                 customer_id,
                 status,
-                _ts(purchase),
-                _ts(approved) if approved_known else "",
-                _ts(carrier) if status in ("shipped", "delivered") else "",
-                _ts(delivered) if status == "delivered" else "",
-                _ts(estimated),
+                format_ts(purchase),
+                format_ts(approved) if approved_known else "",
+                format_ts(carrier) if status in ("shipped", "delivered") else "",
+                format_ts(delivered) if status == "delivered" else "",
+                format_ts(estimated),
             ]
         )
 
@@ -149,7 +149,7 @@ def _generate_rows(orders: int, seed: int) -> Rows:
                     str(item_no),
                     rng.choice(products)[0],
                     rng.choice(sellers)[0],
-                    _ts(purchase + timedelta(days=rng.randint(3, 8))),
+                    format_ts(purchase + timedelta(days=rng.randint(3, 8))),
                     f"{price:.2f}",
                     f"{freight:.2f}",
                 ]
@@ -167,13 +167,13 @@ def _generate_rows(orders: int, seed: int) -> Rows:
             commented = rng.random() < 0.4
             reviews.append(
                 [
-                    _id(rng),
+                    new_id(rng),
                     order_id,
                     str(rng.choices((1, 2, 3, 4, 5), (10, 4, 8, 20, 58))[0]),
                     "Avaliacao" if commented and rng.random() < 0.3 else "",
                     rng.choice(v.REVIEW_MESSAGES) if commented else "",
-                    _ts(created),
-                    _ts(created + timedelta(hours=rng.randint(1, 72))),
+                    format_ts(created),
+                    format_ts(created + timedelta(hours=rng.randint(1, 72))),
                 ]
             )
 
@@ -218,7 +218,7 @@ def _plant_dirt(
         customers.append(junk_customer)
 
 
-def _write_csv(path: Path, header: Sequence[str], rows: Sequence[Row]) -> None:
+def write_csv(path: Path, header: Sequence[str], rows: Sequence[Row]) -> None:
     def write(tmp: Path) -> None:
         with tmp.open("w", encoding="utf-8", newline="") as handle:
             writer = csv.writer(handle, lineterminator="\n")
@@ -243,5 +243,5 @@ def generate(dest: Path, *, orders: int, seed: int) -> dict[str, Path]:
     for name, rows in _generate_rows(orders, seed).items():
         contract = CONTRACTS[name]
         paths[name] = dest / contract.source_file
-        _write_csv(paths[name], list(contract.columns), rows)
+        write_csv(paths[name], list(contract.columns), rows)
     return paths

@@ -13,8 +13,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from de_lakehouse_pipeline.contracts import _LIFECYCLE, CONTRACTS, TIMESTAMP_FORMAT
-from de_lakehouse_pipeline.sources.synthetic import _id, _ts, _write_csv
+from de_lakehouse_pipeline.contracts import CONTRACTS, LIFECYCLE_COLUMNS, TIMESTAMP_FORMAT
+from de_lakehouse_pipeline.sources.synthetic import format_ts, new_id, write_csv
 
 #: from-status -> (to-status, the one timestamp column the transition sets)
 _TRANSITIONS = {
@@ -58,13 +58,13 @@ class _Table:
         return [row[self.col[column]] for row in self.rows]
 
     def write(self) -> Path:
-        _write_csv(self.path, self.header, self.rows)
+        write_csv(self.path, self.header, self.rows)
         return self.path
 
 
 def _clock(orders: _Table) -> datetime:
     moments = []
-    for column in _LIFECYCLE:
+    for column in LIFECYCLE_COLUMNS:
         for value in orders.values(column):
             try:
                 moments.append(datetime.strptime(value, TIMESTAMP_FORMAT))  # noqa: DTZ007 - naive source time
@@ -106,7 +106,7 @@ def simulate(source_dir: Path, *, changes: int, new_orders: int, seed: int) -> S
     payments = _Table(source_dir, "payments")
     clock = _clock(orders)
     rng = random.Random(f"{seed}:{clock.isoformat()}")
-    now = _ts(clock)
+    now = format_ts(clock)
 
     with_items = set(items.values("order_id"))
     position = {row[orders.col["order_id"]]: i for i, row in enumerate(orders.rows)}
@@ -133,11 +133,13 @@ def simulate(source_dir: Path, *, changes: int, new_orders: int, seed: int) -> S
     products = sorted(set(items.values("product_id")))
     sellers = sorted(set(items.values("seller_id")))
     for _ in range(new_orders):
-        order_id, customer_id = _id(rng), _id(rng)
+        order_id, customer_id = new_id(rng), new_id(rng)
         place = rng.choice(valid_customers)[2:]  # zip prefix, city, state
-        customers.rows.append([customer_id, _id(rng), *place])
+        customers.rows.append([customer_id, new_id(rng), *place])
         estimated = clock + timedelta(days=rng.randint(12, 30))
-        orders.rows.append([order_id, customer_id, "created", now, "", "", "", _ts(estimated)])
+        orders.rows.append(
+            [order_id, customer_id, "created", now, "", "", "", format_ts(estimated)]
+        )
         total = 0
         for item_no in range(1, rng.randint(1, 3) + 1):
             price, freight = rng.randint(500, 60000), rng.randint(0, 7000)
@@ -148,7 +150,7 @@ def simulate(source_dir: Path, *, changes: int, new_orders: int, seed: int) -> S
                     str(item_no),
                     rng.choice(products),
                     rng.choice(sellers),
-                    _ts(clock + timedelta(days=6)),
+                    format_ts(clock + timedelta(days=6)),
                     _cents(price),
                     _cents(freight),
                 ]
