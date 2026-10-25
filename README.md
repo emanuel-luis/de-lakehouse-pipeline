@@ -14,7 +14,8 @@ An end-to-end ELT pipeline on open e-commerce data: Polars ingestion with typed 
 - Idempotent, atomic, re-runnable steps: files are written to a temp path and swapped in with `os.replace`, and re-running the pipeline gives identical data.
 - Run metadata: each run records a run_id, UTC timestamps, row counts and rejects per table in an ingest log, and a dbt test reconciles the landing data against that log.
 - A four-layer dbt build on DuckDB (staging, bronze, intermediate, marts) over all nine Olist tables: deduplicated bronze tables, enriched views, star-schema marts with enforced model contracts, a description on every mart column, and tests on keys, ranges and relationships.
-- One-command reproducible demo, plus CI that runs lint, tests and the full pipeline with no credentials.
+- Change data capture on a source with no update column: a simulator changes the source, the ingest lands only the rows past a watermark kept in the ingest log, and `bronze_orders` merges them incrementally.
+- One-command reproducible demo, plus CI that runs lint, tests, the full pipeline and the CDC demo with no credentials.
 
 ## Architecture
 
@@ -27,6 +28,8 @@ flowchart LR
   C --> F["dbt staging<br/>views"]
   E -. reconciled by a dbt test .-> F
   F --> G["dbt bronze<br/>deduplicated tables"]
+  K["lakehouse cdc simulate"] -. changes .-> A
+  E -. watermark .-> B
   G --> I["dbt intermediate<br/>enriched views"]
   G --> J["dbt marts<br/>tables, enforced contracts"]
   I --> J
@@ -38,11 +41,11 @@ Python owns source to landing and never writes DuckDB. dbt is the only DuckDB wr
 | Layer | Location | Format | Owner | Contract and checks |
 | --- | --- | --- | --- | --- |
 | Source | `data/source/*.csv` | CSV | generator or Kaggle download | Olist file and column names |
-| Landing | `data/landing/<table>/` | Parquet | `lakehouse ingest` | Typed contract per table, required columns, `_batch_id`, `_extracted_at`, `_source_file` |
+| Landing | `data/landing/<table>/` | Parquet | `lakehouse ingest` | Typed contract per table, required columns, `_batch_id`, `_extracted_at`, `_source_file`; `full.parquet` plus one `batch-<run_id>.parquet` per incremental orders load |
 | Rejects | `data/rejects/<table>/` | Parquet | `lakehouse ingest` | Source columns as text plus `_reject_reason` and `_batch_id` |
 | Ingest log | `data/_meta/ingest_log/` | Parquet | `lakehouse ingest` | One row per table and run; reconciled with landing by a dbt test |
 | Staging | schema `staging` | DuckDB views | dbt | Renames and cleaning only, one model per landing table; not_null, accepted_values and ranges (keys are tested in bronze, since landing keeps duplicates) |
-| Bronze | schema `bronze` | DuckDB tables | dbt | One deterministic row per natural key (latest `_batch_id` wins); geolocation collapsed to one row per zip prefix; unique, not_null, relationships |
+| Bronze | schema `bronze` | DuckDB tables | dbt | One deterministic row per natural key (latest `_batch_id` wins); `bronze_orders` is incremental; geolocation collapsed to one row per zip prefix; unique, not_null, relationships |
 | Intermediate | schema `intermediate` | DuckDB views | dbt | Joins and the translated product category, at a declared grain; grain tests |
 | Marts | schema `marts` | DuckDB tables | dbt | Star schema with enforced contracts, column descriptions, key, range and relationship tests |
 
@@ -99,6 +102,28 @@ The default synthetic data has the same file and column names and referential in
 - Commit order: the landing file first, the log row after. A crash in between leaves data without a log row, never a log row without data.
 - Re-running ingestion replaces the landing files with the same content, so a second `make demo` gives identical data. The dbt test `reconciles_with_ingest_log` fails the build if landing and log disagree.
 
+## Change data capture
+
+Olist has no update column, so landing derives `order_updated_at` as the latest lifecycle timestamp of an order, and that is the watermark column.
+
+```bash
+make cdc-demo
+```
+
+`make cdc-demo` runs `make demo`, then:
+
+1. `lakehouse cdc simulate` changes the source CSVs in place. Up to 50 orders that have items move one lifecycle step (created to approved, approved, invoiced or processing to shipped, shipped to delivered), each setting exactly the matching timestamp, and 20 new `created` orders arrive with a new customer, 1 to 3 items on existing products and sellers, and one credit card payment for the total. The simulated clock is one hour after the latest lifecycle timestamp in the data, never the wall clock, so the same source and seed always give the same files. Options: `--changes`, `--new-orders`, `--seed`.
+2. `lakehouse ingest --mode incremental` reads the last watermark of `orders` from the ingest log (the highest `watermark_to` since the latest successful full load) and lands only the rows whose `order_updated_at` is later, or cannot be computed so validation still sees them, as `batch-<run_id>.parquet`. The log row records `watermark_from` and `watermark_to`. Without a previous watermark the table is loaded in full; the other tables have no watermark column and are always reloaded in full.
+3. `dbt build` merges the new batch into `bronze_orders` (`delete+insert` on `order_id`, only batches newer than the table). When the ingest log shows a full load of orders newer than the table, the table is emptied first and rebuilt from landing, so a regenerated source never leaves stale orders behind.
+4. `lakehouse summary --watermarks` shows the run, the current watermark and the mart counts: `fct_orders` gains exactly the new orders.
+5. A second incremental ingest finds no rows past the watermark: it writes no file, keeps the watermark and logs a successful run with 0 rows. The next `dbt build` leaves the marts unchanged.
+
+Known limits of this design:
+
+- No hard deletes: a row removed from the source is never removed downstream.
+- A change that sets no lifecycle timestamp (for example a status fix with no new date) does not move `order_updated_at` and is not captured.
+- The strict `>` comparison assumes the source clock never goes backwards; a late write stamped at or before the watermark is missed.
+
 ## Tech stack
 
 Python 3.12 · Polars · Pydantic · DuckDB · dbt-core 1.12 · dbt-duckdb · dbt_utils · uv · ruff · mypy · pytest · Hypothesis · GitHub Actions
@@ -123,24 +148,25 @@ Makefile                     single entry point for local runs and CI
 | `make lint` | ruff check, ruff format --check, mypy (what the CI lint job runs) |
 | `make fmt` | format and auto-fix |
 | `make test-fast` | default test selection (no dbt runs) with the coverage gate |
-| `make test` | every test, including any marked `slow` (none yet; the CDC phase adds end-to-end dbt tests) |
+| `make test` | every test, including the `slow` end-to-end CDC test that runs dbt (needs `make dbt-deps`) |
 | `make source` | write the source CSVs (`DATA_SOURCE=synthetic` or `kaggle`) |
 | `make ingest` | validate source CSVs into typed landing Parquet plus the ingest log |
 | `make dbt-deps` | install dbt packages from package-lock.yml |
 | `make dbt-build` | build and test every dbt model |
 | `make summary` | print the last ingest run and mart row counts |
 | `make demo` | source, ingest, dbt-deps, dbt-build, summary |
+| `make cdc-demo` | demo, then simulate source changes, ingest incrementally, build, and repeat with an empty increment |
 | `make clean` | delete generated data and dbt build output |
 
-CI runs three jobs: lint (ruff and mypy, strict on `src`), test (pytest with an 80% coverage gate), and pipeline (`make demo` on synthetic data). Configuration is documented in `.env.example`.
+CI runs three jobs: lint (ruff and mypy, strict on `src`), test (pytest with an 80% coverage gate), and pipeline (`make demo`, `make cdc-demo` and the slow end-to-end test on synthetic data). Configuration is documented in `.env.example`.
 
 ## Roadmap
 
-This repository ships in stacked pull requests, one per phase. The first two are implemented.
+This repository ships in stacked pull requests, one per phase. The first three are implemented.
 
 - PR1, minimum shippable: ingestion with contracts, dbt staging and marts, tests, CI, `make demo`.
-- PR2, full medallion: staging, bronze, intermediate and marts for all nine tables. This is what you are reading.
-- PR3, upcoming: CDC simulation with an incremental load driven by a watermark.
+- PR2, full medallion: staging, bronze, intermediate and marts for all nine tables.
+- PR3, CDC simulation: an incremental load driven by a watermark in the ingest log, and an incremental `bronze_orders`. This is what you are reading.
 - PR4, upcoming: orchestration with Airflow 3 and Astronomer Cosmos.
 - PR5, upcoming: Elementary observability and a static docs site.
 

@@ -6,7 +6,8 @@ models:
   - name: bronze_orders
     description: >
       Orders deduplicated on order_id (latest _batch_id, then latest order_updated_at). Grain: one
-      row per order_id.
+      row per order_id. Incremental: each run merges only the landing batches newer than the table,
+      and a newer full load of orders rebuilds it from scratch.
     columns:
       - name: order_id
         description: Order identifier, primary key.

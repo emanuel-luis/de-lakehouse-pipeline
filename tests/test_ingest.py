@@ -7,9 +7,10 @@ import polars as pl
 import pytest
 from pydantic import ValidationError
 
+from de_lakehouse_pipeline.cdc import simulate
 from de_lakehouse_pipeline.contracts import CONTRACTS
 from de_lakehouse_pipeline.ingest import ingest, new_run_id
-from de_lakehouse_pipeline.runlog import read_run_log
+from de_lakehouse_pipeline.runlog import last_watermark, read_run_log
 from de_lakehouse_pipeline.settings import MIN_ORDERS, Settings
 from de_lakehouse_pipeline.sources import prepare_source
 
@@ -103,3 +104,49 @@ def test_below_minimum_scale_is_invalid(tmp_path: Path) -> None:
 def test_unknown_table_raises(settings: Settings) -> None:
     with pytest.raises(KeyError):
         ingest(settings, ["nope"])
+
+
+def test_incremental_without_watermark_falls_back_to_full(settings: Settings) -> None:
+    runs = ingest(settings, ["orders", "sellers"], mode="incremental")
+    assert {r.table_name: r.mode for r in runs} == {"orders": "full", "sellers": "full"}
+    assert (settings.landing_dir / "orders" / "full.parquet").exists()
+
+
+def test_incremental_lands_only_rows_after_the_watermark(settings: Settings) -> None:
+    clock = _clock()
+    full = next(r for r in ingest(settings, clock=clock) if r.table_name == "orders")
+    result = simulate(settings.source_dir, changes=12, new_orders=4, seed=1)
+    runs = {r.table_name: r for r in ingest(settings, mode="incremental", clock=clock)}
+    inc = runs["orders"]
+    assert inc.mode == "incremental"
+    assert {r.mode for name, r in runs.items() if name != "orders"} == {"full"}
+    assert all(r.status == "success" for r in runs.values())
+    assert inc.watermark_from == full.watermark_to
+    assert inc.watermark_to == result.clock
+    assert inc.rows_in == inc.rows_out + inc.rows_rejected == 16
+    batch = pl.read_parquet(inc.landing_file or "")
+    assert (batch["order_updated_at"] > full.watermark_to).all()
+    assert Path(inc.landing_file or "").name == f"batch-{inc.run_id}.parquet"
+    assert last_watermark(settings.ingest_log_dir, "orders") == result.clock
+
+    again = ingest(settings, ["orders"], mode="incremental", clock=clock)[0]
+    assert (again.status, again.rows_in, again.rows_out, again.landing_file) == (
+        "success",
+        0,
+        0,
+        None,
+    )
+    assert again.watermark_from == again.watermark_to == result.clock
+    assert len(list((settings.landing_dir / "orders").glob("batch-*.parquet"))) == 1
+
+
+def test_incremental_slice_keeps_rows_it_cannot_date(settings: Settings) -> None:
+    ingest(settings, ["orders"])
+    path = settings.source_dir / CONTRACTS["orders"].source_file
+    lines = path.read_text(encoding="utf-8").splitlines()
+    fields = lines[1].split(",")
+    fields[0], fields[3:7] = "f" * 32, ["not-a-date", "", "", ""]
+    path.write_text("\n".join([*lines, ",".join(fields)]) + "\n", encoding="utf-8")
+    lenient = settings.model_copy(update={"max_reject_ratio": 1.0})
+    run = ingest(lenient, ["orders"], mode="incremental")[0]
+    assert (run.status, run.rows_in, run.rows_out, run.rows_rejected) == ("success", 1, 0, 1)
