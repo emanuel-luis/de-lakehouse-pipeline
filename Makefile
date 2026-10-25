@@ -82,7 +82,7 @@ up: ## start the Airflow stack (creates missing JWT secret and Fernet key in .en
 	@[ -z "$$(tail -c1 .env)" ] || echo >> .env
 	@grep -q '^AIRFLOW__API_AUTH__JWT_SECRET=' .env || echo "AIRFLOW__API_AUTH__JWT_SECRET=$$(openssl rand -hex 32)" >> .env
 	@grep -q '^AIRFLOW__CORE__FERNET_KEY=' .env || echo "AIRFLOW__CORE__FERNET_KEY=$$(openssl rand -base64 32 | tr '+/' '-_')" >> .env
-	docker compose up -d --wait
+	docker compose up -d --build --wait
 
 down: ## stop the Airflow stack and delete its volumes
 	docker compose down -v
@@ -93,8 +93,10 @@ airflow-manifest: ## dbt deps + parse: writes dbt/target/manifest.json for the D
 
 dag-test: airflow-manifest ## DAG integrity test in a throwaway Airflow 3.3.2 + Cosmos venv
 	uv venv --quiet --python 3.12 --allow-existing "$(AIRFLOW_VENV)"
-	uv pip install --quiet --python "$(AIRFLOW_VENV)/bin/python" --constraint "$(AIRFLOW_CONSTRAINTS)" 		apache-airflow==3.3.2 apache-airflow-providers-standard astronomer-cosmos==1.15.1 pytest
-	AIRFLOW_HOME="$$(mktemp -d)" AIRFLOW__CORE__LOAD_EXAMPLES=False LAKEHOUSE_DBT_PROJECT_DIR="$(abspath dbt)" 		"$(AIRFLOW_VENV)/bin/python" -m pytest -c /dev/null --rootdir airflow -q airflow/tests
+	uv pip install --quiet --python "$(AIRFLOW_VENV)/bin/python" --constraint "$(AIRFLOW_CONSTRAINTS)" \
+		apache-airflow==3.3.2 apache-airflow-providers-standard astronomer-cosmos==1.15.1 pytest
+	AIRFLOW_HOME="$$(mktemp -d)" AIRFLOW__CORE__LOAD_EXAMPLES=False LAKEHOUSE_DBT_PROJECT_DIR="$(abspath dbt)" \
+		"$(AIRFLOW_VENV)/bin/python" -m pytest -c /dev/null --rootdir airflow -q airflow/tests
 
 clean: ## delete generated data under ./data and dbt build output
 	find data -mindepth 1 -maxdepth 1 ! -name .gitkeep -exec rm -rf {} +

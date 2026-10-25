@@ -12,6 +12,10 @@ x-airflow-common: &airflow-common
   environment: &airflow-env
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    # LocalExecutor runs tasks in the scheduler container; they reach the Execution API here.
+    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://api-server:8080/execution/
+    # Serves the scheduler's /health on port 8974 for its healthcheck.
+    AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
     AIRFLOW__CORE__AUTH_MANAGER: airflow.api_fastapi.auth.managers.simple.simple_auth_manager.SimpleAuthManager
     AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "true"
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow

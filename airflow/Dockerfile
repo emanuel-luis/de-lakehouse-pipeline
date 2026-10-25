@@ -20,7 +20,8 @@ RUN uv export --frozen --no-dev --no-emit-project --output-file requirements.txt
 # Bake dbt packages and the manifest the Cosmos DAG renders from (no dbt call at DAG parse time).
 COPY dbt /opt/airflow/dbt
 WORKDIR /opt/airflow/dbt
-ENV LAKEHOUSE_DUCKDB_PATH=/tmp/parse.duckdb DO_NOT_TRACK=1
+# The sources render env_var("LAKEHOUSE_DATA_DIR") at parse time: use the runtime value.
+ENV LAKEHOUSE_DATA_DIR=/opt/airflow/data LAKEHOUSE_DUCKDB_PATH=/tmp/parse.duckdb DO_NOT_TRACK=1
 RUN /opt/lakehouse-venv/bin/dbt deps --project-dir . --profiles-dir . \
     && /opt/lakehouse-venv/bin/dbt parse --project-dir . --profiles-dir . \
     && rm -f /tmp/parse.duckdb*
