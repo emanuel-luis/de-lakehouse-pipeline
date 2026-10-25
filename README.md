@@ -16,7 +16,8 @@ An end-to-end ELT pipeline on open e-commerce data: Polars ingestion with typed 
 - A four-layer dbt build on DuckDB (staging, bronze, intermediate, marts) over all nine Olist tables: deduplicated bronze tables, enriched views, star-schema marts with enforced model contracts, a description on every mart column, and tests on keys, ranges and relationships.
 - Change data capture on a source with no update column: a simulator changes the source, the ingest lands only the rows past a watermark kept in the ingest log, and `bronze_orders` merges them incrementally.
 - Orchestration with Airflow 3 and Astronomer Cosmos: an hourly DAG runs source, CDC simulation and incremental ingest, then every dbt model and test as its own Airflow task, in a local docker compose stack. A one-slot pool serializes the tasks against DuckDB's single writer.
-- One-command reproducible demo, plus CI that runs lint, tests, the full pipeline, the CDC demo and the DAG integrity test with no credentials.
+- Data observability with Elementary: schema change checks on every bronze table and a row count anomaly check on bronze_orders, reported next to the dbt docs in a static site that CI publishes to GitHub Pages.
+- One-command reproducible demo, plus CI that runs lint, tests, the full pipeline, the CDC demo, the DAG integrity test and the site build with no credentials.
 
 ## Architecture
 
@@ -162,19 +163,38 @@ make dag-test   # DAG integrity test: dbt parse, then DagBag import checks in a 
 make down       # stops the stack and deletes its volumes, including the warehouse
 ```
 
+## Observability
+
+The [Elementary](https://docs.elementary-data.com/) dbt package (0.26.1) is installed with the project. Its models and test results live in the DuckDB schema `elementary`; nothing else is written there.
+
+- `elementary.schema_changes` on every bronze table, severity error: a dropped, added or retyped column fails the build.
+- `elementary.volume_anomalies` on `bronze_orders`, severity warn. Bronze has no timestamp column, so it compares the table's row count between runs. It needs history to compare against, so a fresh database has nothing to flag; it warns instead of failing for that reason, and `make cdc-demo` adds runs.
+- Anonymous usage tracking is off for dbt (project flag) and for the edr CLI (`dbt/edr/config.yml`).
+
+The site is built from the current warehouse, so run `make demo` or `make cdc-demo` first:
+
+```bash
+make site   # writes site/index.html, site/dbt/index.html and site/elementary/index.html
+```
+
+`make site` runs `dbt docs generate --static`, then the edr CLI from the `site` dependency group (`uv sync --locked --group site` installs it; it is not part of a default sync), then copies the landing page from `docs/site/index.html`. Open `site/index.html` in a browser.
+
+CI builds the same site from synthetic data on every run and, on pushes to main, publishes it to GitHub Pages: https://emanuel-luis.github.io/de-lakehouse-pipeline/ (live after the first merge to main). The architecture notes are in [docs/architecture.md](docs/architecture.md).
+
 ## Tech stack
 
-Python 3.12 · Polars · Pydantic · DuckDB · dbt-core 1.12 · dbt-duckdb · dbt_utils · Airflow 3.3 · Astronomer Cosmos · Docker Compose · uv · ruff · mypy · pytest · Hypothesis · GitHub Actions
+Python 3.12 · Polars · Pydantic · DuckDB · dbt-core 1.12 · dbt-duckdb · dbt_utils · Elementary · Airflow 3.3 · Astronomer Cosmos · Docker Compose · uv · ruff · mypy · pytest · Hypothesis · GitHub Actions
 
 ## Project structure
 
 ```
 src/de_lakehouse_pipeline/   ingestion: settings, contracts, sources, landing, run log, CLI
-dbt/                         dbt project: staging, bronze, intermediate, marts, generic and singular tests, profiles
+dbt/                         dbt project: staging, bronze, intermediate, marts, generic and singular tests, profiles, Elementary config
 tests/                       pytest suite (hermetic: each test runs in its own temp dir)
 airflow/                     Dockerfile, the lakehouse_pipeline DAG and its integrity test
 docker-compose.yml          local Airflow stack: Postgres, scheduler, API server, DAG processor
-docs/                        implementation plan and decision log
+docs/                        implementation plan, decision log, architecture notes
+docs/site/                   landing page for the published site
 .github/workflows/           ci.yml, compose.yml, security.yml
 Makefile                     single entry point for local runs and CI
 ```
@@ -200,19 +220,20 @@ Makefile                     single entry point for local runs and CI
 | `make down` | stop the stack and delete its volumes |
 | `make airflow-manifest` | dbt deps and parse: writes `dbt/target/manifest.json` for the DAG |
 | `make dag-test` | DAG integrity test in a throwaway Airflow 3.3.2 + Cosmos venv |
+| `make site` | build `site/`: dbt docs, Elementary report, landing page (run `make demo` first; needs `uv sync --locked --group site` once) |
 | `make clean` | delete generated data and dbt build output |
 
-CI runs four jobs: lint (ruff and mypy, strict on `src`), test (pytest with an 80% coverage gate), pipeline (`make demo`, `make cdc-demo` and the slow end-to-end test on synthetic data), and dags (`make dag-test`). A separate compose workflow builds the image, starts the stack, checks that the DAG has no import errors and runs `airflow dags test lakehouse_pipeline`; on pull requests it runs only when `airflow/`, `dbt/`, `src/`, `uv.lock` or the compose file change, and it also runs on pushes to main, weekly and on demand. Configuration is documented in `.env.example`.
+CI runs lint (ruff and mypy, strict on `src`), test (pytest with an 80% coverage gate), pipeline (`make demo`, `make cdc-demo` and the slow end-to-end test on synthetic data), dags (`make dag-test`) and site (`make cdc-demo`, `make site`, upload of the Pages artifact). A deploy-pages job publishes the artifact on pushes to main only. A separate compose workflow builds the image, starts the stack, checks that the DAG has no import errors and runs `airflow dags test lakehouse_pipeline`; on pull requests it runs only when `airflow/`, `dbt/`, `src/`, `uv.lock` or the compose file change, and it also runs on pushes to main, weekly and on demand. Configuration is documented in `.env.example`.
 
 ## Roadmap
 
-This repository ships in stacked pull requests, one per phase. The first four are implemented.
+This repository ships in stacked pull requests, one per phase. All five are implemented.
 
 - PR1, minimum shippable: ingestion with contracts, dbt staging and marts, tests, CI, `make demo`.
 - PR2, full medallion: staging, bronze, intermediate and marts for all nine tables.
 - PR3, CDC simulation: an incremental load driven by a watermark in the ingest log, and an incremental `bronze_orders`.
-- PR4, orchestration: Airflow 3 and Astronomer Cosmos in a docker compose stack, with the DAG integrity test and a compose smoke workflow. This is what you are reading.
-- PR5, upcoming: Elementary observability and a static docs site.
+- PR4, orchestration: Airflow 3 and Astronomer Cosmos in a docker compose stack, with the DAG integrity test and a compose smoke workflow.
+- PR5, observability: Elementary tests and a static site (dbt docs, Elementary report) published to GitHub Pages. This is what you are reading.
 
 Design details: [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md). Decision log: [docs/DECISIONS.md](docs/DECISIONS.md).
 
