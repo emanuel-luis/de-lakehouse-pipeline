@@ -1,0 +1,117 @@
+version: 2
+
+models:
+  - name: stg_olist__orders
+    description: >
+      Cleaned landing orders, one row per order_id as extracted (landing keeps duplicates).
+      Status is trimmed and lower-cased; everything else is passed through.
+    columns:
+      - name: order_id
+        description: Order identifier, primary key.
+        data_tests:
+          - unique
+          - not_null
+      - name: customer_id
+        description: Per-order customer key, joins to stg_olist__customers.customer_id.
+        data_tests:
+          - not_null
+      - name: order_status
+        description: Lifecycle status, lower-cased.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - created
+                  - approved
+                  - invoiced
+                  - processing
+                  - shipped
+                  - delivered
+                  - unavailable
+                  - canceled
+      - name: order_purchase_timestamp
+        description: When the order was placed (source local time).
+        data_tests:
+          - not_null
+      - name: order_approved_at
+        description: When payment was approved, null until approved.
+      - name: order_delivered_carrier_date
+        description: When the order was handed to the carrier, null until then.
+      - name: order_delivered_customer_date
+        description: When the customer received the order, null until then.
+      - name: order_estimated_delivery_date
+        description: Delivery date promised to the customer.
+      - name: order_updated_at
+        description: Latest non-null lifecycle timestamp, derived at landing (Olist has no update column).
+      - name: _batch_id
+        description: Ingest run that wrote the row.
+      - name: _extracted_at
+        description: When the row was extracted from the source (UTC).
+      - name: _source_file
+        description: Source file the row came from.
+
+  - name: stg_olist__order_items
+    description: Landing order lines, one row per (order_id, order_item_id) as extracted.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - order_id
+              - order_item_id
+    columns:
+      - name: order_id
+        description: Order the line belongs to.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_olist__orders')
+                field: order_id
+      - name: order_item_id
+        description: Line number within the order, starting at 1.
+        data_tests:
+          - not_null
+      - name: product_id
+        description: Product identifier.
+      - name: seller_id
+        description: Seller identifier.
+      - name: shipping_limit_date
+        description: Latest date the seller may hand the item to the carrier.
+      - name: price
+        description: Item price.
+      - name: freight_value
+        description: Freight charged for the line.
+      - name: _batch_id
+        description: Ingest run that wrote the row.
+      - name: _extracted_at
+        description: When the row was extracted from the source (UTC).
+      - name: _source_file
+        description: Source file the row came from.
+
+  - name: stg_olist__customers
+    description: >
+      Cleaned landing customers, one row per customer_id as extracted. City is trimmed and
+      lower-cased, state upper-cased, zip prefix left-padded with zeros to 5 characters.
+    columns:
+      - name: customer_id
+        description: Per-order customer key, primary key.
+        data_tests:
+          - unique
+          - not_null
+      - name: customer_unique_id
+        description: Stable identifier of the person across orders.
+        data_tests:
+          - not_null
+      - name: customer_zip_code_prefix
+        description: Zip code prefix, 5 characters.
+      - name: customer_city
+        description: City, trimmed and lower-cased.
+      - name: customer_state
+        description: State code, upper-cased.
+      - name: _batch_id
+        description: Ingest run that wrote the row.
+      - name: _extracted_at
+        description: When the row was extracted from the source (UTC).
+      - name: _source_file
+        description: Source file the row came from.
