@@ -1,7 +1,8 @@
 name: ci
 
 # Lint gates the rest. `test` runs the fast suite with the coverage gate; `pipeline` runs the whole
-# demo (synthetic source -> landing -> dbt build -> summary) with no credentials.
+# demo (synthetic source -> landing -> dbt build -> summary), the CDC demo and the slow end-to-end
+# tests, with no credentials.
 on:
   push:
     branches: [main]
@@ -50,7 +51,7 @@ jobs:
       - run: uv run --locked pytest
 
   pipeline:
-    name: pipeline (make demo on synthetic data)
+    name: pipeline (make demo, make cdc-demo, slow tests on synthetic data)
     needs: lint
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -62,6 +63,14 @@ jobs:
       - run: uv sync --locked
       - name: make demo
         run: make demo
+        env:
+          LAKEHOUSE_DATA_DIR: ${{ runner.temp }}/data
+      - name: make cdc-demo
+        run: make cdc-demo
+        env:
+          LAKEHOUSE_DATA_DIR: ${{ runner.temp }}/data
+      - name: slow end-to-end tests
+        run: uv run --locked pytest -m slow --no-cov  # the coverage gate applies to the fast suite
         env:
           LAKEHOUSE_DATA_DIR: ${{ runner.temp }}/data
       - name: Upload dbt results and the ingest log
