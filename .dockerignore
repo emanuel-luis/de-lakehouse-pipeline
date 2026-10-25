@@ -17,3 +17,4 @@ site
 **/.mypy_cache
 **/.ruff_cache
 airflow/tests
+.worktrees
