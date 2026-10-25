@@ -71,7 +71,9 @@ models:
         description: Whole days from purchase to delivery, null if not delivered.
         data_type: integer
       - name: is_late_delivery
-        description: True when delivered after the estimated delivery date.
+        description: >-
+          True when the delivery date (calendar day) is after the estimated delivery date;
+          false for orders not delivered yet.
         data_type: boolean
         data_tests:
           - not_null

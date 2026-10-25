@@ -202,9 +202,14 @@ def _plant_dirt(
     scale = len(orders)
     for k in range(0, len(reviews) - 1, max(2, len(reviews) // 100)):  # review_id reused
         reviews[k + 1][0] = reviews[k][0]
-    for k in rng.sample(range(len(items)), min(max(2, scale // 1000), len(items))):
-        items[k][5] = rng.choice(("abc", "12,50", "N/A"))  # non-numeric price
-    for _ in range(max(2, scale // 500)):  # junk rows: null primary key, no children
+    last_item = {row[0]: int(row[1]) for row in items}  # items are ordered per order
+    for _ in range(max(1, scale // 1000)):  # junk items: extra line with a non-numeric price
+        junk_item = list(rng.choice(items))
+        last_item[junk_item[0]] += 1
+        junk_item[1] = str(last_item[junk_item[0]])
+        junk_item[5] = rng.choice(("abc", "12,50", "N/A"))
+        items.append(junk_item)
+    for _ in range(max(1, scale // 500)):  # junk rows: null primary key, no children
         junk_order = list(rng.choice(orders))
         junk_order[0] = ""
         orders.append(junk_order)
