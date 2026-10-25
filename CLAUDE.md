@@ -15,6 +15,9 @@ Run everything through `make` (needs bash, make and uv: Linux, macOS or WSL).
 - `make dbt-deps` / `make dbt-build`: dbt packages and build + test.
 - `make demo`: source, ingest, dbt-deps, dbt-build, summary. Must pass twice in a row.
 - `make cdc-demo`: demo, then cdc simulate, incremental ingest, dbt build, summary with watermarks, an empty incremental ingest, dbt build, summary. Must pass twice in a row.
+- `make up` / `make down`: start the Airflow stack at http://localhost:8080 (needs Docker with compose; appends a JWT secret and a Fernet key to the gitignored `.env` when missing, never prints them; builds the image) / stop it and delete its volumes.
+- `make airflow-manifest`: `dbt deps` + `dbt parse`, writes `dbt/target/manifest.json`.
+- `make dag-test`: DAG integrity test in a throwaway Airflow 3.3.2 + Cosmos venv outside `uv.lock`. The venv path is `AIRFLOW_VENV` (default `~/.venvs/de-lakehouse-airflow`), the constraints URL is `AIRFLOW_CONSTRAINTS`. Exactly what the CI `dags` job runs.
 - `make clean`: deletes generated data under `data/` and dbt build output.
 - `make demo DATA_SOURCE=kaggle`: real Olist data; needs `KAGGLE_API_TOKEN` (in `.env` or exported). Values in `.env` override shell variables for make (GNU make precedence), command-line variables override both; that is why every assignment in `.env.example` is commented out.
 
@@ -28,11 +31,14 @@ Env vars read by Python and dbt: `LAKEHOUSE_DATA_DIR`, `LAKEHOUSE_DUCKDB_PATH`. 
 - `dbt/`: `models/staging` (views, `stg_olist__*`, one per landing table), `models/bronze` (tables, `bronze_*`, deduplicated; `bronze_orders` incremental), `models/intermediate` (views, `int_*`), `models/marts` (`fct_orders`, `fct_order_items`, `dim_customers`, `dim_products`, `dim_sellers`, `dim_dates`), `macros/generate_schema_name.sql`, `tests/generic/` (`reconciles_with_ingest_log`), `tests/singular/`, `profiles.yml` (single target `dev`).
 - `tests/`: pytest suite; `test_cdc_e2e.py` is the `slow` dbt round trip.
 - `data/`: generated output (source, landing, rejects, `_meta`, warehouse). Only `.gitkeep` is tracked.
-- `.github/workflows/`: `ci.yml` (lint, test, pipeline), `security.yml`.
+- `airflow/`: `Dockerfile` (image with the DAG, dbt project, manifest and pipeline venv baked in), `dags/lakehouse_pipeline.py`, `tests/test_dag_integrity.py`.
+- `docker-compose.yml`: local Airflow stack (Postgres, init, API server, scheduler, DAG processor; LocalExecutor).
+- `.github/workflows/`: `ci.yml` (lint, test, pipeline, dags), `compose.yml` (stack smoke test), `security.yml`.
 
 ## Invariants
 
 - dbt is the only process that writes DuckDB. Python reads DuckDB only through `duckdb.connect(path, read_only=True)` and closes it at once; an open handle blocks dbt.
+- Every Cosmos task of the DAG runs in pool `duckdb_writer` (1 slot): each runs a dbt process that opens DuckDB for writing. The bash tasks need no pool because Python never writes DuckDB. The DAG has `max_active_runs=1`.
 - Landing, reject and source writes are atomic (temp file in the same directory, then `os.replace`). The ingest log row is written after the data it describes.
 - `rows_in = rows_out + rows_rejected` in every log row.
 - The synthetic generator and the CDC simulator never read the wall clock and are byte-deterministic per seed (stdlib `random.Random`; the simulator seeds with the seed and its data-derived clock).
@@ -51,5 +57,5 @@ Env vars read by Python and dbt: `LAKEHOUSE_DATA_DIR`, `LAKEHOUSE_DUCKDB_PATH`. 
 - Bronze is deterministic: no wall-clock columns, and every dedup or tie-break has a total order, so re-runs give identical data. Uniqueness is asserted in bronze, not in staging (landing keeps duplicates). Time-bound data tests use the `source_window_max` var, never the current date.
 - dbt 1.12: generic test arguments go under `arguments:`. dbt-duckdb `external_location` goes under `config:`.
 - Keep `uv.lock` in sync (`uv lock`); CI uses `--locked`. DuckDB is on 2.x (DECISIONS 13): a warehouse file written by 2.x is not readable by 1.x, so rebuild it with `make clean demo` after a downgrade. DuckDB 2 relations (`con.sql(...)`) have no `fetchone()` or `fetchmany()`, and mypy does not flag it; fetch from `con.execute(...)` instead.
-- Conventional Commits in English. One PR per phase (PR1 to PR3 are in the code; PR4 and PR5 are in the plan, not in the code).
+- Conventional Commits in English. One PR per phase (PR1 to PR4 are in the code; PR5 is in the plan, not in the code).
 - Do not document features that are not implemented as if they were. Docs written for readers stay in English.
