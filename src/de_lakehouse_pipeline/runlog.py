@@ -64,3 +64,22 @@ def read_run_log(log_dir: Path) -> pl.DataFrame:
     if not files:
         return pl.DataFrame(schema=INGEST_LOG_SCHEMA)
     return pl.concat([pl.read_parquet(f) for f in files]).sort("run_id", "table_name")
+
+
+def last_watermark(log_dir: Path, table: str) -> datetime | None:
+    """Latest committed watermark of ``table``.
+
+    The max ``watermark_to`` over successful runs since the table's latest successful full run
+    (a full load replaces the landing directory), the same window the dbt reconcile test uses.
+
+    Returns:
+        The watermark, or ``None`` when no successful full run has set one.
+    """
+    log = read_run_log(log_dir).filter(
+        (pl.col("table_name") == table) & (pl.col("status") == "success")
+    )
+    latest_full = log.filter(pl.col("mode") == "full").get_column("run_id").max()
+    if latest_full is None:
+        return None
+    high = log.filter(pl.col("run_id") >= latest_full).get_column("watermark_to").max()
+    return high if isinstance(high, datetime) else None

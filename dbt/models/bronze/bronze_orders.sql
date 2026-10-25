@@ -1,9 +1,39 @@
+{#
+    Incremental: each run merges only the landing batches newer than the table (delete+insert on
+    order_id). A successful full-mode ingest of orders newer than the table replaces the landing
+    directory, so the pre-hook empties the table first and the run reloads everything; without it,
+    orders from an earlier source would linger after the source is regenerated.
+#}
+{{
+    config(
+        materialized='incremental',
+        incremental_strategy='delete+insert',
+        unique_key='order_id',
+        on_schema_change='fail',
+        pre_hook="
+            {% if is_incremental() %}
+            delete from {{ this }}
+            where exists (
+                select 1
+                from {{ source('ingest', 'ingest_log') }}
+                where table_name = 'orders'
+                  and status = 'success'
+                  and mode = 'full'
+                  and run_id > (select coalesce(max(_batch_id), '') from {{ this }})
+            )
+            {% endif %}
+        "
+    )
+}}
+
 with
 
 new_rows as (
 
-    -- The only place that changes when this model becomes incremental: add the batch filter here.
     select * from {{ ref('stg_olist__orders') }}
+    {% if is_incremental() %}
+    where _batch_id > (select coalesce(max(_batch_id), '') from {{ this }})
+    {% endif %}
 
 ),
 
