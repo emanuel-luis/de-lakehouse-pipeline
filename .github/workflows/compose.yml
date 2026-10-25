@@ -1,0 +1,61 @@
+name: compose
+
+# Smoke test of the Airflow docker compose stack: build the image, start the stack, no DAG import
+# errors, and one `airflow dags test` run of lakehouse_pipeline. Heavy (minutes), so PRs trigger it
+# only when they touch what goes into the image.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "airflow/**"
+      - "dbt/**"
+      - "src/**"
+      - "uv.lock"
+      - "docker-compose.yml"
+      - ".github/workflows/compose.yml"
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  DO_NOT_TRACK: "1"
+
+jobs:
+  compose:
+    name: compose (stack up, import errors, dags test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      # make up writes the JWT secret and Fernet key to .env (never printed) and runs
+      # docker compose up -d --build --wait
+      - name: make up
+        run: make up
+      - name: No DAG import errors
+        run: |
+          out="$(docker compose exec -T scheduler airflow dags list-import-errors -o json)"
+          echo "$out"
+          # pass on empty output, an empty JSON list or "No data found"; anything else is an error
+          case "$(printf '%s' "$out" | tr -d '[:space:]')" in
+            ""|"[]"|*Nodatafound*) ;;
+            *) echo "DAG import errors found" >&2; exit 1 ;;
+          esac
+      - name: airflow dags test lakehouse_pipeline
+        run: docker compose exec -T scheduler airflow dags test lakehouse_pipeline
+      - name: Dump compose logs
+        if: failure()
+        run: docker compose logs --no-color --tail=300
+      - name: make down
+        if: always()
+        run: make down
