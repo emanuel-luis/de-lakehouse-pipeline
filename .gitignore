@@ -27,5 +27,5 @@ dbt/logs/
 logs/
 
 # Elementary / docs site build output
-edr_target/
-site/
+/edr_target/
+/site/

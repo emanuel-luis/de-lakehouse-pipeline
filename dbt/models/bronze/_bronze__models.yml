@@ -72,13 +72,12 @@ models:
         description: Source file the row came from.
 
   - name: bronze_order_items
+    description: >-
+      Order lines deduplicated on (order_id, order_item_id). Grain: one row per order line.
     data_tests:
       - elementary.schema_changes:
           config:
             severity: error
-    description: >-
-      Order lines deduplicated on (order_id, order_item_id). Grain: one row per order line.
-    data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
             combination_of_columns:
@@ -215,14 +214,13 @@ models:
       - *c_file
 
   - name: bronze_reviews
-    data_tests:
-      - elementary.schema_changes:
-          config:
-            severity: error
     description: >
       Reviews deduplicated on (review_id, order_id), because review_id alone repeats across
       orders. Grain: one row per (review_id, order_id).
     data_tests:
+      - elementary.schema_changes:
+          config:
+            severity: error
       - dbt_utils.unique_combination_of_columns:
           arguments:
             combination_of_columns:
@@ -262,13 +260,12 @@ models:
       - *c_file
 
   - name: bronze_payments
+    description: >-
+      Payments deduplicated on (order_id, payment_sequential). Grain: one row per payment.
     data_tests:
       - elementary.schema_changes:
           config:
             severity: error
-    description: >-
-      Payments deduplicated on (order_id, payment_sequential). Grain: one row per payment.
-    data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
             combination_of_columns:
