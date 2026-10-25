@@ -24,7 +24,7 @@ Env vars read by Python and dbt: `LAKEHOUSE_DATA_DIR`, `LAKEHOUSE_DUCKDB_PATH`. 
 ## Repo map
 
 - `src/de_lakehouse_pipeline/`: ingestion package. `settings.py` (env config), `contracts.py` (typed contract per table), `sources/` (synthetic generator, Kaggle fetch), `landing.py` (read, validate, reject split, atomic writes), `runlog.py` and `ingest.py` (run log, orchestration), `summary.py`, `cli.py` (entry point `lakehouse`, no logic). Some modules land later in PR1; check what exists before assuming.
-- `dbt/`: `models/staging` (views, `stg_olist__*`), `models/marts` (`fct_orders`, `dim_customers`), `macros/generate_schema_name.sql`, `tests/generic/` (`reconciles_with_ingest_log`), `profiles.yml` (single target `dev`).
+- `dbt/`: `models/staging` (views, `stg_olist__*`, one per landing table), `models/bronze` (tables, `bronze_*`, deduplicated), `models/intermediate` (views, `int_*`), `models/marts` (`fct_orders`, `fct_order_items`, `dim_customers`, `dim_products`, `dim_sellers`, `dim_dates`), `macros/generate_schema_name.sql`, `tests/generic/` (`reconciles_with_ingest_log`), `tests/singular/`, `profiles.yml` (single target `dev`).
 - `tests/`: pytest suite.
 - `data/`: generated output (source, landing, rejects, `_meta`, warehouse). Only `.gitkeep` is tracked.
 - `.github/workflows/`: `ci.yml` (lint, test, pipeline), `security.yml`.
@@ -46,7 +46,8 @@ Env vars read by Python and dbt: `LAKEHOUSE_DATA_DIR`, `LAKEHOUSE_DUCKDB_PATH`. 
 - Python 3.12. Ruff line length 100 with the BLE rule set (a broad `except` needs `# noqa: BLE001 - reason`), DTZ for timezone-aware datetimes. mypy strict on `src`. pytest runs with `--strict-markers`; end-to-end tests carry the `slow` marker. Coverage gate: 80% on `src`, on the fast selection.
 - dbt naming: `stg_olist__<table>`, `bronze_*`, `int_*`, `fct_*`, `dim_*`. Layers other than staging use CTEs, lowercase SQL and explicit column lists. Staging renames and cleans only.
 - Marts have enforced contracts (`data_type` on every column) and a description on every column. Cast aggregates explicitly to match the contract.
+- Bronze is deterministic: no wall-clock columns, and every dedup or tie-break has a total order, so re-runs give identical data. Uniqueness is asserted in bronze, not in staging (landing keeps duplicates). Time-bound data tests use the `source_window_max` var, never the current date.
 - dbt 1.12: generic test arguments go under `arguments:`. dbt-duckdb `external_location` goes under `config:`.
 - Keep `uv.lock` in sync (`uv lock`); CI uses `--locked`. DuckDB stays below 2.0 until dbt-duckdb is verified on it.
-- Conventional Commits in English. One PR per phase (PR1 minimum shippable; PR2 to PR5 are in the plan, not in the code).
+- Conventional Commits in English. One PR per phase (PR1 and PR2 are in the code; PR3 to PR5 are in the plan, not in the code).
 - Do not document features that are not implemented as if they were. Docs written for readers stay in English.

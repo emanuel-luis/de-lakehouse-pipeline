@@ -14,5 +14,10 @@ The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.
 - dbt project on DuckDB: staging views for orders, order items and customers; marts `fct_orders` and `dim_customers` with enforced contracts and column descriptions.
 - dbt tests for keys, accepted values, relationships and ranges, plus a custom `reconciles_with_ingest_log` test.
 - Makefile with `make demo` (source, ingest, dbt build, summary), lint, test and clean targets.
+- dbt staging models and sources for products, sellers, reviews, payments, geolocation and category translation, each reconciled with the ingest log.
+- dbt bronze layer: one deduplicated table per source table (latest batch wins), with geolocation collapsed to one row per zip prefix.
+- dbt intermediate views `int_order_items_enriched` and `int_review_enriched`.
+- Marts `fct_order_items`, `dim_products`, `dim_sellers` and `dim_dates`; `fct_orders` and `dim_customers` now read bronze and intermediate and gain `order_date_key`, `distinct_products`, `distinct_sellers`, `total_payment_value`, `avg_review_score` and `total_spent`.
+- Singular test `assert_orders_without_items_are_unfulfilled` and range tests that bound order timestamps by a fixed source window.
 - GitHub Actions: CI (lint, tests with an 80% coverage gate, full pipeline run on synthetic data) and a security workflow.
 - `.env.example`, README, CLAUDE.md, implementation plan and decision log.
