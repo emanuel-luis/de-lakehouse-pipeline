@@ -115,3 +115,10 @@ def test_cdc_round_trip(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None
     incremental_bronze = _query(settings, bronze_sql)
     build("--full-refresh")
     assert _query(settings, bronze_sql) == incremental_bronze
+
+    # Regenerating the source drops the simulated orders; a full load must take bronze_orders
+    # back to the original orders (the reset pre-hook, DECISIONS 12), not merge into it.
+    prepare_source(settings)
+    assert all(r.status == "success" for r in ingest(settings))
+    build()
+    assert fct_orders() == before
