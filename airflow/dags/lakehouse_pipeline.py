@@ -56,7 +56,12 @@ with DAG(
             target_name="dev",
             profiles_yml_filepath=DBT_PROJECT_DIR / "profiles.yml",
         ),
-        render_config=RenderConfig(load_method=LoadMode.DBT_MANIFEST),
+        # A test with several parents (relationships between marts) runs as its own task after
+        # all of them, as in `dbt build`; otherwise it would run with the first parent built and
+        # fail on a table that does not exist yet.
+        render_config=RenderConfig(
+            load_method=LoadMode.DBT_MANIFEST, should_detach_multiple_parents_tests=True
+        ),
         execution_config=ExecutionConfig(
             execution_mode=ExecutionMode.LOCAL,
             invocation_mode=InvocationMode.SUBPROCESS,
