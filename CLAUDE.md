@@ -50,6 +50,6 @@ Env vars read by Python and dbt: `LAKEHOUSE_DATA_DIR`, `LAKEHOUSE_DUCKDB_PATH`. 
 - Marts have enforced contracts (`data_type` on every column) and a description on every column. Cast aggregates explicitly to match the contract.
 - Bronze is deterministic: no wall-clock columns, and every dedup or tie-break has a total order, so re-runs give identical data. Uniqueness is asserted in bronze, not in staging (landing keeps duplicates). Time-bound data tests use the `source_window_max` var, never the current date.
 - dbt 1.12: generic test arguments go under `arguments:`. dbt-duckdb `external_location` goes under `config:`.
-- Keep `uv.lock` in sync (`uv lock`); CI uses `--locked`. DuckDB stays below 2.0 until dbt-duckdb is verified on it.
+- Keep `uv.lock` in sync (`uv lock`); CI uses `--locked`. DuckDB is on 2.x (DECISIONS 13): a warehouse file written by 2.x is not readable by 1.x, so rebuild it with `make clean demo` after a downgrade. DuckDB 2 relations (`con.sql(...)`) have no `fetchone()` or `fetchmany()`, and mypy does not flag it; fetch from `con.execute(...)` instead.
 - Conventional Commits in English. One PR per phase (PR1 to PR3 are in the code; PR4 and PR5 are in the plan, not in the code).
 - Do not document features that are not implemented as if they were. Docs written for readers stay in English.

@@ -26,3 +26,7 @@ The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.
 - `lakehouse summary --watermarks`, and the ingest mode in the summary.
 - Incremental `bronze_orders` (`delete+insert` on `order_id`), emptied and rebuilt when a newer full load of orders is in the ingest log.
 - `make cdc-demo`, and a slow end-to-end CDC test that runs dbt as a subprocess; CI runs both.
+
+### Changed
+
+- DuckDB moves from 1.5 to 2.0 (`duckdb>=2.0,<3`). A warehouse file written by 2.x cannot be opened by 1.x; rebuild it with `make clean demo`.
