@@ -60,11 +60,12 @@ jobs:
         run: |
           out="$(docker compose exec -T scheduler airflow dags list-import-errors -o json)"
           echo "$out"
-          # pass on empty output, an empty JSON list or "No data found"; anything else is an error
-          case "$(printf '%s' "$out" | tr -d '[:space:]')" in
-            ""|"[]"|*Nodatafound*) ;;
-            *) echo "DAG import errors found" >&2; exit 1 ;;
-          esac
+          # The CLI may print warnings (e.g. graphviz missing) before the result, so look for the
+          # result line itself: an empty JSON list, or "No data found". Anything else fails.
+          if ! printf '%s\n' "$out" | grep -qxE '\[\]|No data found'; then
+            echo "DAG import errors found" >&2
+            exit 1
+          fi
       - name: airflow dags test lakehouse_pipeline
         run: docker compose exec -T scheduler airflow dags test lakehouse_pipeline
       # dags test runs every task in one process. This proves the real path: the scheduler queues
