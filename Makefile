@@ -17,7 +17,11 @@ DATA_SOURCE ?= synthetic
 UV_RUN := uv run --locked $(if $(filter kaggle,$(DATA_SOURCE)),--extra kaggle,)
 DBT_FLAGS := --project-dir dbt --profiles-dir dbt
 
-.PHONY: help install lint fmt test test-fast source ingest dbt-deps dbt-build summary demo cdc-demo clean
+# Throwaway venv for the DAG integrity test, outside uv.lock (Airflow's pins would clash with it).
+AIRFLOW_VENV ?= $(HOME)/.venvs/de-lakehouse-airflow
+AIRFLOW_CONSTRAINTS ?= https://raw.githubusercontent.com/apache/airflow/constraints-3.3.2/constraints-3.12.txt
+
+.PHONY: help install lint fmt test test-fast source ingest dbt-deps dbt-build summary demo cdc-demo clean up down airflow-manifest dag-test
 
 help: ## list the targets
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-12s %s\n", $$1, $$2}'
@@ -72,6 +76,25 @@ cdc-demo: ## demo, then a simulated source change loaded incrementally, then an 
 	$(UV_RUN) lakehouse ingest --mode incremental
 	$(MAKE) --no-print-directory dbt-build
 	$(MAKE) --no-print-directory summary
+
+up: ## start the Airflow stack (creates missing JWT secret and Fernet key in .env)
+	@touch .env
+	@[ -z "$$(tail -c1 .env)" ] || echo >> .env
+	@grep -q '^AIRFLOW__API_AUTH__JWT_SECRET=' .env || echo "AIRFLOW__API_AUTH__JWT_SECRET=$$(openssl rand -hex 32)" >> .env
+	@grep -q '^AIRFLOW__CORE__FERNET_KEY=' .env || echo "AIRFLOW__CORE__FERNET_KEY=$$(openssl rand -base64 32 | tr '+/' '-_')" >> .env
+	docker compose up -d --wait
+
+down: ## stop the Airflow stack and delete its volumes
+	docker compose down -v
+
+airflow-manifest: ## dbt deps + parse: writes dbt/target/manifest.json for the DAG
+	$(UV_RUN) dbt deps $(DBT_FLAGS)
+	$(UV_RUN) dbt parse $(DBT_FLAGS)
+
+dag-test: airflow-manifest ## DAG integrity test in a throwaway Airflow 3.3.2 + Cosmos venv
+	uv venv --quiet --python 3.12 --allow-existing "$(AIRFLOW_VENV)"
+	uv pip install --quiet --python "$(AIRFLOW_VENV)/bin/python" --constraint "$(AIRFLOW_CONSTRAINTS)" 		apache-airflow==3.3.2 apache-airflow-providers-standard astronomer-cosmos==1.15.1 pytest
+	AIRFLOW_HOME="$$(mktemp -d)" AIRFLOW__CORE__LOAD_EXAMPLES=False LAKEHOUSE_DBT_PROJECT_DIR="$(abspath dbt)" 		"$(AIRFLOW_VENV)/bin/python" -m pytest -c /dev/null --rootdir airflow -q airflow/tests
 
 clean: ## delete generated data under ./data and dbt build output
 	find data -mindepth 1 -maxdepth 1 ! -name .gitkeep -exec rm -rf {} +

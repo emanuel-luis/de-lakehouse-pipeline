@@ -38,7 +38,9 @@ with DAG(
 ) as dag:
     # Python never writes DuckDB, so these three need no pool slot.
     source = BashOperator(task_id="source", bash_command=f"{LAKEHOUSE_BIN} source --if-missing")
-    cdc_simulate = BashOperator(task_id="cdc_simulate", bash_command=f"{LAKEHOUSE_BIN} cdc simulate")
+    cdc_simulate = BashOperator(
+        task_id="cdc_simulate", bash_command=f"{LAKEHOUSE_BIN} cdc simulate"
+    )
     ingest = BashOperator(
         task_id="ingest", bash_command=f"{LAKEHOUSE_BIN} ingest --mode incremental"
     )
@@ -60,7 +62,7 @@ with DAG(
             invocation_mode=InvocationMode.SUBPROCESS,
             dbt_executable_path=DBT_BIN,
         ),
-        operator_args={"pool": POOL, "install_deps": False, "append_env": True},
+        operator_args={"pool": POOL, "append_env": True},
     )
 
     source >> cdc_simulate >> ingest >> dbt

@@ -11,7 +11,7 @@ DAG_ID = "lakehouse_pipeline"
 
 @pytest.fixture(scope="module")
 def dagbag() -> DagBag:
-    return DagBag(dag_folder=str(DAGS), include_examples=False)
+    return DagBag(dag_folder=str(DAGS))
 
 
 def test_no_import_errors(dagbag: DagBag) -> None:
@@ -19,7 +19,7 @@ def test_no_import_errors(dagbag: DagBag) -> None:
 
 
 def test_dag_settings(dagbag: DagBag) -> None:
-    dag = dagbag.get_dag(DAG_ID)
+    dag = dagbag.dags.get(DAG_ID)
     assert dag is not None
     assert dag.schedule == "@hourly"
     assert dag.catchup is False
@@ -27,7 +27,7 @@ def test_dag_settings(dagbag: DagBag) -> None:
 
 
 def test_expected_tasks_and_pool(dagbag: DagBag) -> None:
-    dag = dagbag.get_dag(DAG_ID)
+    dag = dagbag.dags.get(DAG_ID)
     assert dag is not None
     ids = set(dag.task_ids)
     assert {"source", "cdc_simulate", "ingest"} <= ids
