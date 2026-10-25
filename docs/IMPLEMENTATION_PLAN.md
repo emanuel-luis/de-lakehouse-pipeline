@@ -69,7 +69,7 @@ data/_meta/ingest_log/run-<run_id>.parquet     one row per (run, table)
 
 | Path | Responsibility |
 | --- | --- |
-| `settings.py` | `Settings(BaseSettings)`, `env_file=".env"`, `extra="ignore"`. Fields (env alias): `data_source: Literal["synthetic","kaggle"] = "synthetic"` (`DATA_SOURCE`), `data_dir: Path = Path("data")` (`LAKEHOUSE_DATA_DIR`), `duckdb_path: Path \| None` (`LAKEHOUSE_DUCKDB_PATH`, default `data_dir/warehouse/lakehouse.duckdb`), `synthetic_orders: int = 5000, ge=10` (`SYNTHETIC_ORDERS`), `synthetic_seed: int = 42` (`SYNTHETIC_SEED`), `max_reject_ratio: float = 0.01` (`MAX_REJECT_RATIO`). Properties `source_dir`, `landing_dir`, `rejects_dir`, `ingest_log_dir`, `warehouse_path` (resolved); `ensure_dirs()`. No work at import time. |
+| `settings.py` | `Settings(BaseSettings)`, `env_file=".env"`, `extra="ignore"`. Fields (env alias): `data_source: Literal["synthetic","kaggle"] = "synthetic"` (`DATA_SOURCE`), `data_dir: Path = Path("data")` (`LAKEHOUSE_DATA_DIR`), `duckdb_path: Path \| None` (`LAKEHOUSE_DUCKDB_PATH`, default `data_dir/warehouse/lakehouse.duckdb`), `synthetic_orders: int = 5000, ge=200` (`SYNTHETIC_ORDERS`), `synthetic_seed: int = 42` (`SYNTHETIC_SEED`), `max_reject_ratio: float = 0.01` (`MAX_REJECT_RATIO`). Properties `source_dir`, `landing_dir`, `rejects_dir`, `ingest_log_dir`, `warehouse_path` (resolved); `ensure_dirs()`. No work at import time. |
 | `contracts.py` | `@dataclass(frozen=True, slots=True) TableContract(name, source_file, columns: Mapping[str, pl.DataType], primary_key: tuple[str, ...], required: frozenset[str], derived: Mapping[str, pl.Expr] = {}, incremental_column: str \| None = None)`; `CONTRACTS: Final[Mapping[str, TableContract]]` for all 9 tables; `METADATA_COLUMNS`. |
 | `io.py` | `atomic_write_parquet(df, path)`: tmp file in the same dir, `os.replace`, tmp removed on error. |
 | `sources/__init__.py` | `prepare_source(settings) -> dict[str, Path]`, dispatch on `data_source`. |
@@ -125,7 +125,7 @@ upload-artifact `cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2` with `if: al
 `.github/workflows/security.yml`: `pip-audit` on `uv export --frozen --all-extras --all-groups
 --no-emit-project` (Python 3.12) and `zizmor` on the workflows; weekly cron.
 
-Also: `.env.example` (every variable commented, `KAGGLE_API_TOKEN=` empty), `README.md`,
+Also: `.env.example` (every assignment commented out: values in `.env` override the shell for make), `README.md`,
 `CHANGELOG.md`, repo `CLAUDE.md` (Commands, Repo map, Invariants, Conventions).
 
 ### Task B — dbt (`dbt/`)
@@ -169,7 +169,7 @@ git ls-files data                                 # only data/.gitkeep
 ```
 
 CI green on lint, test, pipeline, pip-audit and zizmor. Kaggle is a manual check:
-`DATA_SOURCE=kaggle make demo`.
+`make demo DATA_SOURCE=kaggle`.
 
 ## PR2 — full medallion (dbt only)
 

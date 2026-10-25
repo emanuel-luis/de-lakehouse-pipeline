@@ -49,8 +49,11 @@ final as (
             orders.order_purchase_timestamp,
             orders.order_delivered_customer_date
         )::integer as delivery_days,
+        -- The estimated date is a calendar day (Olist stores it at midnight): compare dates, so
+        -- a delivery on the promised day is on time.
         coalesce(
-            orders.order_delivered_customer_date > orders.order_estimated_delivery_date,
+            orders.order_delivered_customer_date::date
+                > orders.order_estimated_delivery_date::date,
             false
         )::boolean as is_late_delivery
 

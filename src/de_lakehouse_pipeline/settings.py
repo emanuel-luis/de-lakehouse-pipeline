@@ -6,6 +6,9 @@ from typing import Literal
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+#: Smallest scale whose planted dirt stays under the default 1% reject ratio.
+MIN_ORDERS = 200
+
 
 class Settings(BaseSettings):
     """Pipeline configuration; nothing is read or created until it is instantiated."""
@@ -17,7 +20,7 @@ class Settings(BaseSettings):
     )
     data_dir: Path = Field(default=Path("data"), validation_alias="LAKEHOUSE_DATA_DIR")
     duckdb_path: Path | None = Field(default=None, validation_alias="LAKEHOUSE_DUCKDB_PATH")
-    synthetic_orders: int = Field(default=5000, ge=10, validation_alias="SYNTHETIC_ORDERS")
+    synthetic_orders: int = Field(default=5000, ge=MIN_ORDERS, validation_alias="SYNTHETIC_ORDERS")
     synthetic_seed: int = Field(default=42, validation_alias="SYNTHETIC_SEED")
     max_reject_ratio: float = Field(default=0.01, ge=0, le=1, validation_alias="MAX_REJECT_RATIO")
 
@@ -50,5 +53,13 @@ class Settings(BaseSettings):
 
     def ensure_dirs(self) -> None:
         """Create the directories Python writes into."""
-        for path in (self.source_dir, self.landing_dir, self.rejects_dir, self.ingest_log_dir):
+        # The warehouse directory is created here so dbt can open its file; Python never
+        # creates or writes the .duckdb file itself.
+        for path in (
+            self.source_dir,
+            self.landing_dir,
+            self.rejects_dir,
+            self.ingest_log_dir,
+            self.warehouse_path.parent,
+        ):
             path.mkdir(parents=True, exist_ok=True)

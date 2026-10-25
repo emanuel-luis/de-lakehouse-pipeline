@@ -5,11 +5,13 @@ from pathlib import Path
 
 import polars as pl
 import pytest
+from pydantic import ValidationError
 
 from de_lakehouse_pipeline.contracts import CONTRACTS
 from de_lakehouse_pipeline.ingest import ingest, new_run_id
 from de_lakehouse_pipeline.runlog import read_run_log
-from de_lakehouse_pipeline.settings import Settings
+from de_lakehouse_pipeline.settings import MIN_ORDERS, Settings
+from de_lakehouse_pipeline.sources import prepare_source
 
 
 def _clock() -> Callable[[], datetime]:
@@ -76,6 +78,26 @@ def test_missing_source_file_is_recorded_and_log_written(settings: Settings) -> 
     runs = ingest(settings, ["sellers", "customers"])
     assert [r.status for r in runs] == ["failed", "success"]
     assert read_run_log(settings.ingest_log_dir).height == 2
+
+
+def test_every_itemless_order_is_unfulfilled(settings: Settings) -> None:
+    ingest(settings, ["orders", "order_items"])
+    orders = pl.read_parquet(settings.landing_dir / "orders" / "full.parquet")
+    items = pl.read_parquet(settings.landing_dir / "order_items" / "full.parquet")
+    itemless = orders.filter(~pl.col("order_id").is_in(items["order_id"].implode()))
+    assert itemless.height > 0
+    assert set(itemless["order_status"]) <= {"canceled", "unavailable", "created"}
+
+
+def test_smallest_allowed_scale_ingests_under_default_ratio(tmp_path: Path) -> None:
+    small = Settings(data_dir=tmp_path, synthetic_orders=MIN_ORDERS)
+    prepare_source(small)
+    assert all(r.status == "success" for r in ingest(small))
+
+
+def test_below_minimum_scale_is_invalid(tmp_path: Path) -> None:
+    with pytest.raises(ValidationError):
+        Settings(data_dir=tmp_path, synthetic_orders=MIN_ORDERS - 1)
 
 
 def test_unknown_table_raises(settings: Settings) -> None:

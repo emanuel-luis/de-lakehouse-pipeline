@@ -10,12 +10,12 @@ Run everything through `make` (needs bash, make and uv: Linux, macOS or WSL).
 - `make lint`: ruff check, ruff format --check, mypy. Exactly what the CI lint job runs.
 - `make fmt`: ruff format and `ruff check --fix`.
 - `make test-fast`: default pytest selection (no `slow`), with the coverage gate.
-- `make test`: every test, including `slow` (end-to-end, runs dbt).
+- `make test`: every test, including any marked `slow` (none in PR1; PR3 adds end-to-end dbt tests).
 - `make source` / `make ingest` / `make summary`: `lakehouse source|ingest|summary`.
 - `make dbt-deps` / `make dbt-build`: dbt packages and build + test.
 - `make demo`: source, ingest, dbt-deps, dbt-build, summary. Must pass twice in a row.
 - `make clean`: deletes generated data under `data/` and dbt build output.
-- `DATA_SOURCE=kaggle make demo`: real Olist data; needs `KAGGLE_API_TOKEN` in `.env`.
+- `make demo DATA_SOURCE=kaggle`: real Olist data; needs `KAGGLE_API_TOKEN` (in `.env` or exported). Values in `.env` override shell variables for make (GNU make precedence), command-line variables override both; that is why every assignment in `.env.example` is commented out.
 
 Calling dbt directly: `uv run dbt <cmd> --project-dir dbt --profiles-dir dbt`.
 
@@ -38,6 +38,7 @@ Env vars read by Python and dbt: `LAKEHOUSE_DATA_DIR`, `LAKEHOUSE_DUCKDB_PATH`. 
 - Rejects never orphan valid rows: a rejected parent must not leave valid children behind in the generated data.
 - `data/` is never committed. No Olist rows are committed.
 - Never print or log secret values (`KAGGLE_API_TOKEN`: check presence only).
+- Tests are hermetic: an autouse fixture clears the pipeline's env vars and runs each test in its own temp dir, so `make test` never touches `data/`.
 - Public repo: no employer names, employer code or internal identifiers. Everything is built on open or synthetic data.
 
 ## Conventions

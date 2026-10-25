@@ -3,7 +3,8 @@ SHELL := bash
 .SHELLFLAGS := -eu -o pipefail -c
 .DEFAULT_GOAL := help
 
-# Optional overrides from .env (see .env.example); exported to uv, the CLI and dbt.
+# Optional overrides from .env (see .env.example); exported to uv, the CLI and dbt. GNU make
+# gives a value set in .env priority over the shell environment; `make VAR=value` beats both.
 -include .env
 export
 
@@ -33,7 +34,7 @@ fmt: ## format and auto-fix
 	uv run --locked ruff format
 	uv run --locked ruff check --fix
 
-test: ## every test, including the slow end-to-end ones
+test: ## every test, including any marked slow
 	uv run --locked pytest -m "slow or not slow"
 
 test-fast: ## the default selection (no dbt runs), with the coverage gate
@@ -49,6 +50,7 @@ dbt-deps: ## install dbt packages from package-lock.yml
 	$(UV_RUN) dbt deps $(DBT_FLAGS)
 
 dbt-build: ## build and test every dbt model (DuckDB)
+	mkdir -p "$$(dirname "$(LAKEHOUSE_DUCKDB_PATH)")"
 	$(UV_RUN) dbt build $(DBT_FLAGS)
 
 summary: ## print the last ingest run and mart row counts

@@ -63,9 +63,11 @@ uv run python -c "import duckdb; c = duckdb.connect('data/warehouse/lakehouse.du
 ### Real data
 
 ```bash
-cp .env.example .env        # then set KAGGLE_API_TOKEN in .env
-DATA_SOURCE=kaggle make demo
+cp .env.example .env        # then uncomment and set DATA_SOURCE=kaggle and KAGGLE_API_TOKEN
+make demo
 ```
+
+Values in `.env` take precedence over shell variables for `make` targets. For a one-off run, pass the variable on the command line instead: `make demo DATA_SOURCE=kaggle` (with `KAGGLE_API_TOKEN` exported).
 
 The [Olist Brazilian e-commerce dataset](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce) is downloaded at runtime from Kaggle under its own license (CC BY-NC-SA 4.0 per the Kaggle page). It is never committed to this repository. The MIT license covers the code only.
 
@@ -88,7 +90,7 @@ Python 3.12 · Polars · Pydantic · DuckDB · dbt-core 1.12 · dbt-duckdb · db
 ```
 src/de_lakehouse_pipeline/   ingestion: settings, contracts, sources, landing, run log, CLI
 dbt/                         dbt project: staging, marts, generic tests, profiles
-tests/                       pytest suite (fast by default, slow marker for dbt runs)
+tests/                       pytest suite (hermetic: each test runs in its own temp dir)
 docs/                        implementation plan and decision log
 .github/workflows/           ci.yml, security.yml
 Makefile                     single entry point for local runs and CI
@@ -103,7 +105,7 @@ Makefile                     single entry point for local runs and CI
 | `make lint` | ruff check, ruff format --check, mypy (what the CI lint job runs) |
 | `make fmt` | format and auto-fix |
 | `make test-fast` | default test selection (no dbt runs) with the coverage gate |
-| `make test` | every test, including the slow end-to-end ones |
+| `make test` | every test, including any marked `slow` (none yet; the CDC phase adds end-to-end dbt tests) |
 | `make source` | write the source CSVs (`DATA_SOURCE=synthetic` or `kaggle`) |
 | `make ingest` | validate source CSVs into typed landing Parquet plus the ingest log |
 | `make dbt-deps` | install dbt packages from package-lock.yml |
