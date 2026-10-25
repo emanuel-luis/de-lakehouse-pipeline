@@ -1,6 +1,6 @@
 # de-lakehouse-pipeline
 
-An end-to-end ELT pipeline on open e-commerce data: Polars ingestion with typed data contracts, then a dbt staging-to-marts build on DuckDB, reproducible with one command and no credentials.
+An end-to-end ELT pipeline on open e-commerce data: Polars ingestion with typed data contracts, then a dbt staging, bronze, intermediate and marts build on DuckDB, reproducible with one command and no credentials.
 
 [![ci](https://github.com/emanuel-luis/de-lakehouse-pipeline/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/emanuel-luis/de-lakehouse-pipeline/actions/workflows/ci.yml)
 ![license](https://img.shields.io/badge/license-MIT-green)
@@ -13,7 +13,7 @@ An end-to-end ELT pipeline on open e-commerce data: Polars ingestion with typed 
 - Typed data contracts at the landing boundary: every source table has a schema, bad rows are split out with a reason instead of failing the load or slipping through, and a table whose reject ratio is too high fails loudly.
 - Idempotent, atomic, re-runnable steps: files are written to a temp path and swapped in with `os.replace`, and re-running the pipeline gives identical data.
 - Run metadata: each run records a run_id, UTC timestamps, row counts and rejects per table in an ingest log, and a dbt test reconciles the landing data against that log.
-- dbt staging to marts on DuckDB with enforced model contracts, a description on every mart column, and tests on keys, ranges and relationships.
+- A four-layer dbt build on DuckDB (staging, bronze, intermediate, marts) over all nine Olist tables: deduplicated bronze tables, enriched views, star-schema marts with enforced model contracts, a description on every mart column, and tests on keys, ranges and relationships.
 - One-command reproducible demo, plus CI that runs lint, tests and the full pipeline with no credentials.
 
 ## Architecture
@@ -26,8 +26,11 @@ flowchart LR
   B --> E[("Ingest log")]
   C --> F["dbt staging<br/>views"]
   E -. reconciled by a dbt test .-> F
-  F --> G["dbt marts<br/>tables, enforced contracts"]
-  G --> H[("DuckDB warehouse")]
+  F --> G["dbt bronze<br/>deduplicated tables"]
+  G --> I["dbt intermediate<br/>enriched views"]
+  G --> J["dbt marts<br/>tables, enforced contracts"]
+  I --> J
+  J --> H[("DuckDB warehouse")]
 ```
 
 Python owns source to landing and never writes DuckDB. dbt is the only DuckDB writer: its sources read the landing Parquet directly, so there is one writer and no lock contention.
@@ -38,8 +41,23 @@ Python owns source to landing and never writes DuckDB. dbt is the only DuckDB wr
 | Landing | `data/landing/<table>/` | Parquet | `lakehouse ingest` | Typed contract per table, required columns, `_batch_id`, `_extracted_at`, `_source_file` |
 | Rejects | `data/rejects/<table>/` | Parquet | `lakehouse ingest` | Source columns as text plus `_reject_reason` and `_batch_id` |
 | Ingest log | `data/_meta/ingest_log/` | Parquet | `lakehouse ingest` | One row per table and run; reconciled with landing by a dbt test |
-| Staging | schema `staging` | DuckDB views | dbt | Renames and cleaning only; unique, not_null, accepted_values, relationships |
-| Marts | schema `marts` | DuckDB tables | dbt | `fct_orders`, `dim_customers`; enforced contracts, column descriptions, key and range tests |
+| Staging | schema `staging` | DuckDB views | dbt | Renames and cleaning only, one model per landing table; not_null, accepted_values and ranges (keys are tested in bronze, since landing keeps duplicates) |
+| Bronze | schema `bronze` | DuckDB tables | dbt | One deterministic row per natural key (latest `_batch_id` wins); geolocation collapsed to one row per zip prefix; unique, not_null, relationships |
+| Intermediate | schema `intermediate` | DuckDB views | dbt | Joins and the translated product category, at a declared grain; grain tests |
+| Marts | schema `marts` | DuckDB tables | dbt | Star schema with enforced contracts, column descriptions, key, range and relationship tests |
+
+### Marts
+
+| Model | Grain |
+| --- | --- |
+| `fct_orders` | one row per order |
+| `fct_order_items` | one row per order line (order, item number) |
+| `dim_customers` | one row per `customer_unique_id` |
+| `dim_products` | one row per product, with orders, revenue and average review score |
+| `dim_sellers` | one row per seller, with orders, items sold, revenue and average review score |
+| `dim_dates` | one row per calendar day between the first and last order date |
+
+Both facts carry foreign keys to the dimensions, checked by relationship tests. Products with no category, or a category missing from the translation table, get the category `unknown`.
 
 ## Quickstart
 
@@ -89,7 +107,7 @@ Python 3.12 · Polars · Pydantic · DuckDB · dbt-core 1.12 · dbt-duckdb · db
 
 ```
 src/de_lakehouse_pipeline/   ingestion: settings, contracts, sources, landing, run log, CLI
-dbt/                         dbt project: staging, marts, generic tests, profiles
+dbt/                         dbt project: staging, bronze, intermediate, marts, generic and singular tests, profiles
 tests/                       pytest suite (hermetic: each test runs in its own temp dir)
 docs/                        implementation plan and decision log
 .github/workflows/           ci.yml, security.yml
@@ -118,10 +136,10 @@ CI runs three jobs: lint (ruff and mypy, strict on `src`), test (pytest with an 
 
 ## Roadmap
 
-This repository ships in stacked pull requests, one per phase. Only the first is implemented.
+This repository ships in stacked pull requests, one per phase. The first two are implemented.
 
-- PR1, minimum shippable: ingestion with contracts, dbt staging and marts, tests, CI, `make demo`. This is what you are reading.
-- PR2, upcoming: full medallion (bronze, intermediate, all nine tables, more marts).
+- PR1, minimum shippable: ingestion with contracts, dbt staging and marts, tests, CI, `make demo`.
+- PR2, full medallion: staging, bronze, intermediate and marts for all nine tables. This is what you are reading.
 - PR3, upcoming: CDC simulation with an incremental load driven by a watermark.
 - PR4, upcoming: orchestration with Airflow 3 and Astronomer Cosmos.
 - PR5, upcoming: Elementary observability and a static docs site.
