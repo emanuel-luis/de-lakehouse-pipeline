@@ -1,5 +1,7 @@
-"""End to end: source -> full load -> CDC -> incremental loads, with dbt run in process."""
+"""End to end: source -> full load -> CDC -> incremental loads, with dbt as a subprocess."""
 
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +15,7 @@ from de_lakehouse_pipeline.settings import Settings
 from de_lakehouse_pipeline.sources import prepare_source
 
 DBT_DIR = Path(__file__).resolve().parents[1] / "dbt"
+DBT_EXECUTABLE = Path(sys.executable).parent / "dbt"  # the dbt of this virtualenv
 
 pytestmark = [
     pytest.mark.slow,
@@ -52,18 +55,18 @@ def _marts_digest(settings: Settings) -> dict[str, str]:
 
 
 def test_cdc_round_trip(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    from dbt.cli.main import dbtRunner
-
     data_dir = (tmp_path / "data").resolve()
     monkeypatch.setenv("LAKEHOUSE_DATA_DIR", str(data_dir))
     monkeypatch.setenv("LAKEHOUSE_DUCKDB_PATH", str(data_dir / "warehouse" / "lakehouse.duckdb"))
     monkeypatch.setenv("DO_NOT_TRACK", "1")
     settings = Settings(synthetic_orders=400)
-    runner = dbtRunner()
 
     def build(*extra: str) -> None:
-        result = runner.invoke(
+        # A separate process, as in production: dbt-duckdb holds its DuckDB handle for the life
+        # of the process, which would block the read-only connections below.
+        result = subprocess.run(
             [
+                str(DBT_EXECUTABLE),
                 "build",
                 "--project-dir",
                 str(DBT_DIR),
@@ -74,17 +77,12 @@ def test_cdc_round_trip(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None
                 "--log-path",
                 str(tmp_path / "logs"),
                 *extra,
-            ]
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
         )
-        assert result.success, result.exception
-        # dbt-duckdb keeps its DuckDB instance open for the life of the process, which would
-        # block the read-only connections below; close it like a separate dbt process would.
-        from dbt.adapters.duckdb.connections import DuckDBConnectionManager as manager
-
-        with manager._LOCK:
-            if manager._ENV is not None:
-                manager._ENV.close()
-                manager._ENV = None
+        assert result.returncode == 0, result.stdout[-4000:]
 
     def fct_orders() -> dict[str, str]:
         return dict(_query(settings, "select order_id, order_status from marts.fct_orders"))

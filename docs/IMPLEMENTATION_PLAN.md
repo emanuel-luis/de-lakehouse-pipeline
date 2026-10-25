@@ -206,7 +206,7 @@ CI green on lint, test, pipeline, pip-audit and zizmor. Kaggle is a manual check
 - `make cdc-demo`: demo → summary → simulate (50 changes, 20 new) → incremental ingest →
   `dbt build` → summary (+20 orders, changed statuses, new watermark) → incremental ingest again
   (0 rows) → `dbt build` → identical summary.
-- `tests/test_cdc_e2e.py` (`slow`, `dbtRunner` in `tmp_path`) asserts each claim; CI pipeline job
+- `tests/test_cdc_e2e.py` (`slow`, the venv's `dbt` as a subprocess in `tmp_path`) asserts each claim; CI pipeline job
   adds `make cdc-demo` and `pytest -m slow`.
 - Documented limits: no hard deletes; a change that sets no timestamp is invisible; `>` assumes a
   monotonic source clock.

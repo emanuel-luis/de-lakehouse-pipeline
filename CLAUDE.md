@@ -10,7 +10,7 @@ Run everything through `make` (needs bash, make and uv: Linux, macOS or WSL).
 - `make lint`: ruff check, ruff format --check, mypy. Exactly what the CI lint job runs.
 - `make fmt`: ruff format and `ruff check --fix`.
 - `make test-fast`: default pytest selection (no `slow`), with the coverage gate.
-- `make test`: every test, including the `slow` end-to-end CDC test (runs dbt in process; skipped without `dbt/dbt_packages`).
+- `make test`: every test, including the `slow` end-to-end CDC test (runs dbt as a subprocess; skipped without `dbt/dbt_packages`).
 - `make source` / `make ingest` / `make summary`: `lakehouse source|ingest|summary`. Also `lakehouse cdc simulate [--changes N --new-orders N --seed S]`, `lakehouse ingest --mode incremental`, `lakehouse summary --watermarks`.
 - `make dbt-deps` / `make dbt-build`: dbt packages and build + test.
 - `make demo`: source, ingest, dbt-deps, dbt-build, summary. Must pass twice in a row.
