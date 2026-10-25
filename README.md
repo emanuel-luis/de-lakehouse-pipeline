@@ -202,7 +202,7 @@ Makefile                     single entry point for local runs and CI
 | `make dag-test` | DAG integrity test in a throwaway Airflow 3.3.2 + Cosmos venv |
 | `make clean` | delete generated data and dbt build output |
 
-CI runs four jobs: lint (ruff and mypy, strict on `src`), test (pytest with an 80% coverage gate), pipeline (`make demo`, `make cdc-demo` and the slow end-to-end test on synthetic data), and dags (`make dag-test`). A separate compose workflow builds the image, starts the stack, checks that the DAG has no import errors and runs `airflow dags test lakehouse_pipeline`; on pull requests it runs only when `airflow/`, `dbt/`, `src/`, `uv.lock` or the compose file change, and it also runs on pushes to main, weekly and on demand. Configuration is documented in `.env.example`.
+CI runs four jobs: lint (ruff and mypy, strict on `src`), test (pytest with an 80% coverage gate), pipeline (`make demo`, `make cdc-demo` and the slow end-to-end test on synthetic data), and dags (`make dag-test`). A separate compose workflow builds the image, starts the stack, checks that the DAG has no import errors runs `airflow dags test lakehouse_pipeline`, then unpauses the DAG and waits for one run driven by the scheduler; on pull requests it runs only when `airflow/`, `dbt/`, `src/`, `uv.lock` or the compose file change, and it also runs on pushes to main, weekly and on demand. Configuration is documented in `.env.example`.
 
 ## Roadmap
 
