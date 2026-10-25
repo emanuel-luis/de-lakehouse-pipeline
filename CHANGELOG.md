@@ -21,3 +21,8 @@ The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.
 - Singular test `assert_orders_without_items_are_unfulfilled` and range tests that bound order timestamps by a fixed source window.
 - GitHub Actions: CI (lint, tests with an 80% coverage gate, full pipeline run on synthetic data) and a security workflow.
 - `.env.example`, README, CLAUDE.md, implementation plan and decision log.
+- `lakehouse cdc simulate`: moves orders one lifecycle step and adds new orders with their customers, items and payments, on a simulated clock taken from the data.
+- `lakehouse ingest --mode incremental`: lands only the orders past the last watermark from the ingest log as a batch file; a run with nothing new writes no file and keeps the watermark.
+- `lakehouse summary --watermarks`, and the ingest mode in the summary.
+- Incremental `bronze_orders` (`delete+insert` on `order_id`), emptied and rebuilt when a newer full load of orders is in the ingest log.
+- `make cdc-demo`, and a slow end-to-end CDC test that runs dbt in process; CI runs both.

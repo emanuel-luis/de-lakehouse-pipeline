@@ -211,6 +211,20 @@ CI green on lint, test, pipeline, pip-audit and zizmor. Kaggle is a manual check
 - Documented limits: no hard deletes; a change that sets no timestamp is invisible; `>` assumes a
   monotonic source clock.
 
+As built, where it differs from the list above:
+
+- The clock is the max lifecycle timestamp in the orders CSV plus one hour, recomputed on every
+  call; the RNG is seeded with the seed and that clock. Only orders with at least one item line
+  can change, so an item-less order never leaves the unfulfilled statuses. Each new order gets a
+  new customer, 1-3 items on existing products and sellers, and one `credit_card` payment.
+- The incremental slice is cut from the raw text rows before validation, on a best-effort typed
+  `order_updated_at`; rows where it cannot be computed are kept so validation rejects them, and
+  `rows_in` and the reject ratio apply to the slice.
+- `bronze_orders` also empties itself when a newer successful full load of orders is in the
+  ingest log (DECISIONS 12).
+- CI runs `pytest -m slow --no-cov`: the coverage gate applies to the fast selection.
+- `summary` prints the ingest mode of every table.
+
 ## PR4 — orchestration
 
 - `airflow/Dockerfile`, multi-stage on `apache/airflow:slim-3.3.2-python3.12`: the builder creates
