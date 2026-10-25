@@ -33,6 +33,7 @@ dev = [
     "pytest>=9.1",
     "pytest-timeout>=2.4",
     "hypothesis>=6.170",
+    "pytest-cov>=7.0",
 ]
 
 [build-system]
@@ -56,8 +57,16 @@ python_version = "3.12"
 strict = true
 enable_error_code = ["ignore-without-code"]
 
+[[tool.mypy.overrides]]
+# Optional `kaggle` extra, not installed in the dev environment.
+module = "kagglehub"
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
-addopts = "-ra --strict-markers --strict-config -m 'not slow'"
+addopts = "-ra --strict-markers --strict-config -m 'not slow' --cov=de_lakehouse_pipeline --cov-report=term-missing:skip-covered --cov-fail-under=80"
 testpaths = ["tests"]
 timeout = 120
 markers = ["slow: end-to-end tests that run dbt (deselected by default; run with -m slow)"]
+
+[tool.coverage.run]
+branch = true
