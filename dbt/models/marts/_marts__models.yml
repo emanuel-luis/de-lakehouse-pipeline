@@ -4,9 +4,16 @@ models:
   - name: fct_orders
     description: >
       Order fact. Grain: one row per order_id. Item amounts are summed per order; orders without
-      items have total_items 0 and amounts 0.00. delivery_days is whole days from purchase to
-      delivery (null if not delivered). An order is late when it was delivered after the estimated
-      date; undelivered orders are not late.
+      items have total_items 0 and amounts 0.00. total_payment_value sums every payment of the
+      order (0.00 when none). avg_review_score is the mean of the order's reviews, null when it has
+      none. delivery_days is whole days from purchase to delivery (null if not delivered). An order
+      is late when it was delivered after the estimated date; undelivered orders are not late.
+    data_tests:
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: >-
+              order_delivered_customer_date is null
+              or order_delivered_customer_date >= order_purchase_timestamp
     columns:
       - name: order_id
         description: Order identifier, primary key.
@@ -28,24 +35,53 @@ models:
               arguments:
                 to: ref('dim_customers')
                 field: customer_unique_id
+      - name: order_date_key
+        description: Purchase date as an integer YYYYMMDD, foreign key to dim_dates.
+        data_type: integer
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_dates')
+                field: date_key
       - name: order_status
         description: Lifecycle status, lower-cased.
         data_type: varchar
       - name: order_purchase_timestamp
         description: When the order was placed.
         data_type: timestamp
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                max_value: "cast('{{ var('source_window_max') }}' as timestamp)"
       - name: order_approved_at
         description: When payment was approved, null until approved.
         data_type: timestamp
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                max_value: "cast('{{ var('source_window_max') }}' as timestamp)"
       - name: order_delivered_carrier_date
         description: When the order was handed to the carrier, null until then.
         data_type: timestamp
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                max_value: "cast('{{ var('source_window_max') }}' as timestamp)"
       - name: order_delivered_customer_date
         description: When the customer received the order, null until then.
         data_type: timestamp
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                max_value: "cast('{{ var('source_window_max') }}' as timestamp)"
       - name: order_estimated_delivery_date
         description: Delivery date promised to the customer.
         data_type: timestamp
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                max_value: "cast('{{ var('source_window_max') }}' as timestamp)"
       - name: total_items
         description: Number of item lines on the order, 0 when none.
         data_type: bigint
@@ -67,6 +103,35 @@ models:
           - dbt_utils.accepted_range:
               arguments:
                 min_value: 0
+      - name: distinct_products
+        description: Number of distinct products on the order, 0 when none.
+        data_type: bigint
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: distinct_sellers
+        description: Number of distinct sellers on the order, 0 when none.
+        data_type: bigint
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: total_payment_value
+        description: Sum of all payments on the order, 0.00 when it has none.
+        data_type: decimal(18,2)
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: avg_review_score
+        description: Mean review score of the order (1 to 5, 2 decimals), null when not reviewed.
+        data_type: decimal(3,2)
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                max_value: 5
       - name: delivery_days
         description: Whole days from purchase to delivery, null if not delivered.
         data_type: integer
@@ -78,11 +143,114 @@ models:
         data_tests:
           - not_null
 
+  - name: fct_order_items
+    description: >
+      Order item fact. Grain: one row per (order_id, order_item_id). Amounts are the line's own
+      price and freight; item_total is their sum. product_category is the English category, or
+      'unknown' when the product has none or it is untranslated.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - order_id
+              - order_item_id
+    columns:
+      - name: order_id
+        description: Order the line belongs to, foreign key to fct_orders.
+        data_type: varchar
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('fct_orders')
+                field: order_id
+      - name: order_item_id
+        description: Line number within the order, starting at 1.
+        data_type: bigint
+        data_tests:
+          - not_null
+      - name: product_id
+        description: Product sold, foreign key to dim_products.
+        data_type: varchar
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_products')
+                field: product_id
+      - name: seller_id
+        description: Seller who sold the line, foreign key to dim_sellers.
+        data_type: varchar
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_sellers')
+                field: seller_id
+      - name: customer_unique_id
+        description: Stable customer identifier, foreign key to dim_customers.
+        data_type: varchar
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_customers')
+                field: customer_unique_id
+      - name: order_date_key
+        description: Purchase date as an integer YYYYMMDD, foreign key to dim_dates.
+        data_type: integer
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_dates')
+                field: date_key
+      - name: order_status
+        description: Lifecycle status of the order, lower-cased.
+        data_type: varchar
+      - name: order_purchase_timestamp
+        description: When the order was placed.
+        data_type: timestamp
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                max_value: "cast('{{ var('source_window_max') }}' as timestamp)"
+      - name: shipping_limit_date
+        description: Latest date the seller may hand the item to the carrier.
+        data_type: timestamp
+      - name: product_category
+        description: English product category, 'unknown' when missing or untranslated.
+        data_type: varchar
+        data_tests:
+          - not_null
+      - name: price
+        description: Item price.
+        data_type: decimal(18,2)
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: freight_value
+        description: Freight charged for the line.
+        data_type: decimal(18,2)
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: item_total
+        description: Price plus freight of the line.
+        data_type: decimal(18,2)
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+
   - name: dim_customers
     description: >
       Customer dimension. Grain: one row per customer_unique_id. Zip prefix, city and state come
       from the customer's latest order (ties broken by customer_id); customers without orders have
-      total_orders 0 and null order timestamps.
+      total_orders 0, total_spent 0.00 and null order timestamps. total_spent sums every payment
+      on the customer's orders, whatever the order status.
     columns:
       - name: customer_unique_id
         description: Stable customer identifier, primary key.
@@ -112,3 +280,175 @@ models:
           - dbt_utils.accepted_range:
               arguments:
                 min_value: 0
+      - name: total_spent
+        description: Sum of payment values over all the customer's orders.
+        data_type: decimal(18,2)
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+
+  - name: dim_products
+    description: >
+      Product dimension. Grain: one row per product_id. total_orders counts distinct orders that
+      contain the product, total_revenue sums its item prices (freight excluded), and
+      avg_review_score averages the reviews of those orders, counting an order once per product.
+      Products never sold have 0 and 0.00, and a null score.
+    columns:
+      - name: product_id
+        description: Product identifier, primary key.
+        data_type: varchar
+        data_tests:
+          - unique
+          - not_null
+      - name: product_category_name
+        description: Category in Portuguese; null for products without one.
+        data_type: varchar
+      - name: product_category
+        description: English category, 'unknown' when missing or untranslated.
+        data_type: varchar
+        data_tests:
+          - not_null
+      - name: product_name_length
+        description: Characters in the product name.
+        data_type: bigint
+      - name: product_description_length
+        description: Characters in the product description.
+        data_type: bigint
+      - name: product_photos_qty
+        description: Number of published photos.
+        data_type: bigint
+      - name: product_weight_g
+        description: Weight in grams.
+        data_type: bigint
+      - name: product_length_cm
+        description: Package length in centimeters.
+        data_type: bigint
+      - name: product_height_cm
+        description: Package height in centimeters.
+        data_type: bigint
+      - name: product_width_cm
+        description: Package width in centimeters.
+        data_type: bigint
+      - name: total_orders
+        description: Distinct orders containing the product.
+        data_type: bigint
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: total_revenue
+        description: Sum of item prices for the product, 0.00 when never sold.
+        data_type: decimal(18,2)
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: avg_review_score
+        description: Mean review score of the orders containing the product (2 decimals), null when none reviewed.
+        data_type: decimal(3,2)
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                max_value: 5
+
+  - name: dim_sellers
+    description: >
+      Seller dimension. Grain: one row per seller_id. total_orders counts distinct orders with an
+      item from the seller, total_items_sold counts lines, total_revenue sums item prices (freight
+      excluded), and avg_review_score averages the reviews of those orders. Sellers without sales
+      have 0, 0 and 0.00, and a null score.
+    columns:
+      - name: seller_id
+        description: Seller identifier, primary key.
+        data_type: varchar
+        data_tests:
+          - unique
+          - not_null
+      - name: seller_zip_code_prefix
+        description: Zip code prefix, 5 characters.
+        data_type: varchar
+      - name: seller_city
+        description: City, lower-cased.
+        data_type: varchar
+      - name: seller_state
+        description: State code.
+        data_type: varchar
+      - name: total_orders
+        description: Distinct orders with an item from the seller.
+        data_type: bigint
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: total_items_sold
+        description: Order lines sold by the seller.
+        data_type: bigint
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: total_revenue
+        description: Sum of item prices for the seller, 0.00 when none sold.
+        data_type: decimal(18,2)
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: avg_review_score
+        description: Mean review score of the orders with an item from the seller (2 decimals), null when none reviewed.
+        data_type: decimal(3,2)
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                max_value: 5
+
+  - name: dim_dates
+    description: >
+      Date dimension. Grain: one row per calendar day from the first to the last order purchase
+      date, with no gaps. date_key is the day as an integer YYYYMMDD. Weeks follow ISO 8601 and
+      day_of_week runs from 1 (Monday) to 7 (Sunday).
+    columns:
+      - name: date_key
+        description: Day as an integer YYYYMMDD, primary key.
+        data_type: integer
+        data_tests:
+          - unique
+          - not_null
+      - name: date_day
+        description: The calendar day.
+        data_type: date
+        data_tests:
+          - unique
+          - not_null
+      - name: day_of_week
+        description: ISO day of week, 1 (Monday) to 7 (Sunday).
+        data_type: integer
+      - name: day_name
+        description: English day name.
+        data_type: varchar
+      - name: day_of_month
+        description: Day of the month, 1 to 31.
+        data_type: integer
+      - name: week_of_year
+        description: ISO week number.
+        data_type: integer
+      - name: month_number
+        description: Month, 1 to 12.
+        data_type: integer
+      - name: month_name
+        description: English month name.
+        data_type: varchar
+      - name: quarter
+        description: Calendar quarter, 1 to 4.
+        data_type: integer
+      - name: year
+        description: Calendar year.
+        data_type: integer
+      - name: is_weekend
+        description: True on Saturday and Sunday.
+        data_type: boolean
+        data_tests:
+          - not_null
