@@ -6,7 +6,7 @@ An end-to-end ELT pipeline on open e-commerce data: Polars ingestion with typed 
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![python](https://img.shields.io/badge/python-3.12-blue)
 ![dbt-core](https://img.shields.io/badge/dbt--core-1.12-orange)
-![duckdb](https://img.shields.io/badge/DuckDB-1.x-yellow)
+![duckdb](https://img.shields.io/badge/DuckDB-2.x-yellow)
 
 ## What this demonstrates
 

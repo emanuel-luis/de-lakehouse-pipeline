@@ -285,4 +285,5 @@ As built, where it differs from the list above:
 7. Airflow 3 slim image: standard provider presence and `DagBag` parsing without a metadata DB;
    verified in the `dags` job.
 8. Kaggle file drift (BOM, nulls): manual run only; rejects surface it.
-9. DuckDB 2.x stays blocked until dbt-duckdb supports it (DECISIONS 6).
+9. DuckDB 2.x: was blocked until verified with dbt-duckdb 1.11 (DECISIONS 6); verified and adopted
+   in DECISIONS 13.
