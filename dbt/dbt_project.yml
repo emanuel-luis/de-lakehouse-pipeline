@@ -28,3 +28,6 @@ models:
       +materialized: table
       +contract:
         enforced: true
+  # Elementary writes only to schema `elementary` (generate_schema_name uses it as-is).
+  elementary:
+    +schema: elementary
