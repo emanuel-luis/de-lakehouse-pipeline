@@ -18,6 +18,7 @@ Run everything through `make` (needs bash, make and uv: Linux, macOS or WSL).
 - `make up` / `make down`: start the Airflow stack at http://localhost:8080 (needs Docker with compose; appends a JWT secret and a Fernet key to the gitignored `.env` when missing, never prints them; builds the image) / stop it and delete its volumes.
 - `make airflow-manifest`: `dbt deps` + `dbt parse`, writes `dbt/target/manifest.json`.
 - `make dag-test`: DAG integrity test in a throwaway Airflow 3.3.2 + Cosmos venv outside `uv.lock`. The venv path is `AIRFLOW_VENV` (default `~/.venvs/de-lakehouse-airflow`), the constraints URL is `AIRFLOW_CONSTRAINTS`. Exactly what the CI `dags` job runs.
+- `make site`: builds `site/` (dbt docs, Elementary report, landing page) from the current warehouse; run `make demo` or `make cdc-demo` first. Needs the `site` dependency group (`uv sync --locked --group site`; edr runs through `uv run --locked --group site`).
 - `make clean`: deletes generated data under `data/` and dbt build output.
 - `make demo DATA_SOURCE=kaggle`: real Olist data; needs `KAGGLE_API_TOKEN` (in `.env` or exported). Values in `.env` override shell variables for make (GNU make precedence), command-line variables override both; that is why every assignment in `.env.example` is commented out.
 
@@ -28,12 +29,13 @@ Env vars read by Python and dbt: `LAKEHOUSE_DATA_DIR`, `LAKEHOUSE_DUCKDB_PATH`. 
 ## Repo map
 
 - `src/de_lakehouse_pipeline/`: ingestion package. `settings.py` (env config), `contracts.py` (typed contract per table), `sources/` (synthetic generator, Kaggle fetch), `landing.py` (read, validate, reject split, watermark slice, atomic writes), `runlog.py` (run log, `last_watermark`) and `ingest.py` (orchestration, full and incremental modes), `cdc.py` (source change simulator), `summary.py`, `cli.py` (entry point `lakehouse`, no logic).
-- `dbt/`: `models/staging` (views, `stg_olist__*`, one per landing table), `models/bronze` (tables, `bronze_*`, deduplicated; `bronze_orders` incremental), `models/intermediate` (views, `int_*`), `models/marts` (`fct_orders`, `fct_order_items`, `dim_customers`, `dim_products`, `dim_sellers`, `dim_dates`), `macros/generate_schema_name.sql`, `tests/generic/` (`reconciles_with_ingest_log`), `tests/singular/`, `profiles.yml` (single target `dev`).
+- `dbt/`: `models/staging` (views, `stg_olist__*`, one per landing table), `models/bronze` (tables, `bronze_*`, deduplicated; `bronze_orders` incremental), `models/intermediate` (views, `int_*`), `models/marts` (`fct_orders`, `fct_order_items`, `dim_customers`, `dim_products`, `dim_sellers`, `dim_dates`), `macros/generate_schema_name.sql`, `tests/generic/` (`reconciles_with_ingest_log`), `tests/singular/`, `profiles.yml` (single target `dev`, plus the `elementary` profile for edr), `edr/config.yml` (edr settings).
+- `docs/`: plan, decision log, `architecture.md`, and `site/index.html` (landing page copied into the published site).
 - `tests/`: pytest suite; `test_cdc_e2e.py` is the `slow` dbt round trip.
 - `data/`: generated output (source, landing, rejects, `_meta`, warehouse). Only `.gitkeep` is tracked.
 - `airflow/`: `Dockerfile` (image with the DAG, dbt project, manifest and pipeline venv baked in), `dags/lakehouse_pipeline.py`, `tests/test_dag_integrity.py`.
 - `docker-compose.yml`: local Airflow stack (Postgres, init, API server, scheduler, DAG processor; LocalExecutor).
-- `.github/workflows/`: `ci.yml` (lint, test, pipeline, dags), `compose.yml` (stack smoke test), `security.yml`.
+- `.github/workflows/`: `ci.yml` (lint, test, pipeline, dags, site, deploy-pages), `compose.yml` (stack smoke test), `security.yml`.
 
 ## Invariants
 
@@ -45,6 +47,7 @@ Env vars read by Python and dbt: `LAKEHOUSE_DATA_DIR`, `LAKEHOUSE_DUCKDB_PATH`. 
 - The CDC watermark lives only in the ingest log. `bronze_orders` empties itself when a successful full load of orders is newer than its latest `_batch_id` (DECISIONS 12).
 - Rejects never orphan valid rows: a rejected parent must not leave valid children behind in the generated data.
 - `data/` is never committed. No Olist rows are committed.
+- Elementary writes only to schema `elementary`; no project model gains a wall-clock column. Anonymous telemetry stays off (dbt flag and `dbt/edr/config.yml`).
 - Never print or log secret values (`KAGGLE_API_TOKEN`: check presence only).
 - Tests are hermetic: an autouse fixture clears the pipeline's env vars and runs each test in its own temp dir, so `make test` never touches `data/`.
 - Public repo: no employer names, employer code or internal identifiers. Everything is built on open or synthetic data.
@@ -57,5 +60,5 @@ Env vars read by Python and dbt: `LAKEHOUSE_DATA_DIR`, `LAKEHOUSE_DUCKDB_PATH`. 
 - Bronze is deterministic: no wall-clock columns, and every dedup or tie-break has a total order, so re-runs give identical data. Uniqueness is asserted in bronze, not in staging (landing keeps duplicates). Time-bound data tests use the `source_window_max` var, never the current date.
 - dbt 1.12: generic test arguments go under `arguments:`. dbt-duckdb `external_location` goes under `config:`.
 - Keep `uv.lock` in sync (`uv lock`); CI uses `--locked`. DuckDB is on 2.x (DECISIONS 13): a warehouse file written by 2.x is not readable by 1.x, so rebuild it with `make clean demo` after a downgrade. DuckDB 2 relations (`con.sql(...)`) have no `fetchone()` or `fetchmany()`, and mypy does not flag it; fetch from `con.execute(...)` instead.
-- Conventional Commits in English. One PR per phase (PR1 to PR4 are in the code; PR5 is in the plan, not in the code).
+- Conventional Commits in English. One PR per phase (PR1 to PR4 are in the code; PR5 is observability and the Pages site).
 - Do not document features that are not implemented as if they were. Docs written for readers stay in English.
