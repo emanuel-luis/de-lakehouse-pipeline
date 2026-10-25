@@ -14,7 +14,7 @@ The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.
 - DAG `lakehouse_pipeline` (hourly): source, CDC simulation and incremental ingest as bash tasks, then the dbt project as a Cosmos task group; every Cosmos task runs in the one-slot `duckdb_writer` pool.
 - DAG integrity test and `make dag-test`, which run in a throwaway Airflow venv outside `uv.lock`.
 - CI: a `dags` job in `ci.yml` and a `compose` workflow that starts the stack, checks for DAG import errors and runs `airflow dags test`.
-- Dependabot updates for the `docker` (Airflow image) and `docker-compose` ecosystems.
+- Dependabot updates for the `docker` (the uv build image) and `docker-compose` ecosystems. The Airflow base image is bumped by hand, together with the `apache-airflow` pin and the constraints URL.
 - Polars ingestion with a typed contract per Olist table: reject handling with a reason, a reject-ratio threshold, atomic Parquet writes, and an ingest log with run_id, UTC timestamps, row counts and rejects.
 - Deterministic synthetic data generator with the Olist schema and deliberate dirt (default source), and an opt-in Kaggle source for the real dataset.
 - `lakehouse` CLI with `source`, `ingest` and `summary` subcommands.

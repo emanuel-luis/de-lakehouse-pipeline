@@ -80,8 +80,12 @@ cdc-demo: ## demo, then a simulated source change loaded incrementally, then an 
 up: ## start the Airflow stack (creates missing JWT secret and Fernet key in .env)
 	@touch .env
 	@[ -z "$$(tail -c1 .env)" ] || echo >> .env
-	@grep -q '^AIRFLOW__API_AUTH__JWT_SECRET=' .env || echo "AIRFLOW__API_AUTH__JWT_SECRET=$$(openssl rand -hex 32)" >> .env
-	@grep -q '^AIRFLOW__CORE__FERNET_KEY=' .env || echo "AIRFLOW__CORE__FERNET_KEY=$$(openssl rand -base64 32 | tr '+/' '-_')" >> .env
+	@grep -q '^AIRFLOW__API_AUTH__JWT_SECRET=' .env || { v="$$(openssl rand -hex 32)"; \
+		[ -n "$$v" ] || { echo "openssl failed: no JWT secret written" >&2; exit 1; }; \
+		echo "AIRFLOW__API_AUTH__JWT_SECRET=$$v" >> .env; }
+	@grep -q '^AIRFLOW__CORE__FERNET_KEY=' .env || { v="$$(openssl rand -base64 32 | tr '+/' '-_')"; \
+		[ -n "$$v" ] || { echo "openssl failed: no Fernet key written" >&2; exit 1; }; \
+		echo "AIRFLOW__CORE__FERNET_KEY=$$v" >> .env; }
 	docker compose up -d --build --wait
 
 down: ## stop the Airflow stack and delete its volumes
