@@ -6,10 +6,22 @@ profile: de_lakehouse_pipeline
 flags:
   send_anonymous_usage_stats: false
 
+vars:
+  # Upper bound for every order timestamp in the data tests. A constant, never the wall clock:
+  # Olist's published window ends in 2018 and the synthetic window ends 2018-08-31, so the
+  # latest estimated delivery date of either is well before this.
+  source_window_max: "2018-12-31"
+
 models:
   de_lakehouse_pipeline:
     staging:
       +schema: staging
+      +materialized: view
+    bronze:
+      +schema: bronze
+      +materialized: table
+    intermediate:
+      +schema: intermediate
       +materialized: view
     marts:
       +schema: marts
