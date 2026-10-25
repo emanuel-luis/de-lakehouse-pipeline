@@ -1,5 +1,7 @@
 version: 2
 
+# Staging asserts no key uniqueness: landing keeps duplicate keys on purpose and bronze
+# dedups them, so the unique and grain tests live in models/bronze.
 models:
   - name: stg_olist__orders
     description: >
@@ -7,9 +9,8 @@ models:
       Status is trimmed and lower-cased; everything else is passed through.
     columns:
       - name: order_id
-        description: Order identifier, primary key.
+        description: Order identifier.
         data_tests:
-          - unique
           - not_null
       - name: customer_id
         description: Per-order customer key, joins to stg_olist__customers.customer_id.
@@ -52,13 +53,7 @@ models:
         description: Source file the row came from.
 
   - name: stg_olist__order_items
-    description: Landing order lines, one row per (order_id, order_item_id) as extracted.
-    data_tests:
-      - dbt_utils.unique_combination_of_columns:
-          arguments:
-            combination_of_columns:
-              - order_id
-              - order_item_id
+    description: Landing order lines as extracted; bronze_order_items asserts the grain.
     columns:
       - name: order_id
         description: Order the line belongs to.
@@ -95,9 +90,8 @@ models:
       lower-cased, state upper-cased, zip prefix left-padded with zeros to 5 characters.
     columns:
       - name: customer_id
-        description: Per-order customer key, primary key.
+        description: Per-order customer key.
         data_tests:
-          - unique
           - not_null
       - name: customer_unique_id
         description: Stable identifier of the person across orders.
@@ -109,6 +103,192 @@ models:
         description: City, trimmed and lower-cased.
       - name: customer_state
         description: State code, upper-cased.
+      - name: _batch_id
+        description: Ingest run that wrote the row.
+      - name: _extracted_at
+        description: When the row was extracted from the source (UTC).
+      - name: _source_file
+        description: Source file the row came from.
+
+  - name: stg_olist__products
+    description: >
+      Landing products, one row per product_id as extracted. The Olist header typos
+      product_name_lenght and product_description_lenght are renamed to *_length; the category
+      name is trimmed and lower-cased. Products without a category keep null descriptors.
+    columns:
+      - name: product_id
+        description: Product identifier.
+        data_tests:
+          - not_null
+      - name: product_category_name
+        description: Category in Portuguese, lower-cased; null for some products.
+      - name: product_name_length
+        description: Characters in the product name (source column product_name_lenght).
+      - name: product_description_length
+        description: Characters in the product description (source column product_description_lenght).
+      - name: product_photos_qty
+        description: Number of published photos.
+      - name: product_weight_g
+        description: Weight in grams.
+      - name: product_length_cm
+        description: Package length in centimeters.
+      - name: product_height_cm
+        description: Package height in centimeters.
+      - name: product_width_cm
+        description: Package width in centimeters.
+      - name: _batch_id
+        description: Ingest run that wrote the row.
+      - name: _extracted_at
+        description: When the row was extracted from the source (UTC).
+      - name: _source_file
+        description: Source file the row came from.
+
+  - name: stg_olist__sellers
+    description: >
+      Landing sellers, one row per seller_id as extracted. City is trimmed and lower-cased, state
+      upper-cased, zip prefix left-padded with zeros to 5 characters.
+    columns:
+      - name: seller_id
+        description: Seller identifier.
+        data_tests:
+          - not_null
+      - name: seller_zip_code_prefix
+        description: Zip code prefix, 5 characters.
+      - name: seller_city
+        description: City, trimmed and lower-cased.
+      - name: seller_state
+        description: State code, upper-cased.
+      - name: _batch_id
+        description: Ingest run that wrote the row.
+      - name: _extracted_at
+        description: When the row was extracted from the source (UTC).
+      - name: _source_file
+        description: Source file the row came from.
+
+  - name: stg_olist__reviews
+    description: >
+      Landing order reviews as extracted. review_id legitimately repeats across orders, so there is
+      no uniqueness test here; the (review_id, order_id) grain is asserted in bronze_reviews.
+    columns:
+      - name: review_id
+        description: Review identifier; repeats across orders in the source.
+        data_tests:
+          - not_null
+      - name: order_id
+        description: Reviewed order.
+        data_tests:
+          - not_null
+      - name: review_score
+        description: Satisfaction score from 1 to 5.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+                max_value: 5
+      - name: review_comment_title
+        description: Optional comment title.
+      - name: review_comment_message
+        description: Optional comment text.
+      - name: review_creation_date
+        description: When the satisfaction survey was sent.
+      - name: review_answer_timestamp
+        description: When the survey was answered.
+      - name: _batch_id
+        description: Ingest run that wrote the row.
+      - name: _extracted_at
+        description: When the row was extracted from the source (UTC).
+      - name: _source_file
+        description: Source file the row came from.
+
+  - name: stg_olist__payments
+    description: >
+      Landing order payments as extracted; bronze_payments asserts the (order_id,
+      payment_sequential) grain. Payment type is trimmed and lower-cased.
+    columns:
+      - name: order_id
+        description: Order the payment belongs to.
+        data_tests:
+          - not_null
+      - name: payment_sequential
+        description: Payment number within the order, starting at 1.
+        data_tests:
+          - not_null
+      - name: payment_type
+        description: Payment method, lower-cased.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values:
+                  - credit_card
+                  - boleto
+                  - voucher
+                  - debit_card
+                  - not_defined
+      - name: payment_installments
+        description: Number of installments chosen.
+      - name: payment_value
+        description: Amount paid in this payment.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: _batch_id
+        description: Ingest run that wrote the row.
+      - name: _extracted_at
+        description: When the row was extracted from the source (UTC).
+      - name: _source_file
+        description: Source file the row came from.
+
+  - name: stg_olist__geolocation
+    description: >
+      Landing geolocation as extracted: many rows per zip prefix (exact and jittered duplicates),
+      so there is no uniqueness test here; bronze_geolocation collapses to one row per zip prefix.
+      City is trimmed and lower-cased, state upper-cased, zip prefix left-padded to 5 characters.
+    columns:
+      - name: geolocation_zip_code_prefix
+        description: Zip code prefix, 5 characters; repeats in the source.
+        data_tests:
+          - not_null
+      - name: geolocation_lat
+        description: Latitude in degrees.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: -90
+                max_value: 90
+      - name: geolocation_lng
+        description: Longitude in degrees.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: -180
+                max_value: 180
+      - name: geolocation_city
+        description: City, trimmed and lower-cased.
+      - name: geolocation_state
+        description: State code, upper-cased.
+      - name: _batch_id
+        description: Ingest run that wrote the row.
+      - name: _extracted_at
+        description: When the row was extracted from the source (UTC).
+      - name: _source_file
+        description: Source file the row came from.
+
+  - name: stg_olist__category_translation
+    description: Landing category translations, one row per Portuguese category name as extracted; both names trimmed and lower-cased.
+    columns:
+      - name: product_category_name
+        description: Category in Portuguese.
+        data_tests:
+          - not_null
+      - name: product_category_name_english
+        description: Category in English.
+        data_tests:
+          - not_null
       - name: _batch_id
         description: Ingest run that wrote the row.
       - name: _extracted_at
