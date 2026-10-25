@@ -1,0 +1,118 @@
+version: 2
+
+models:
+  - name: int_order_items_enriched
+    description: >
+      Order lines with their order, customer, product, translated category and seller. Grain: one
+      row per (order_id, order_item_id). The category is the English name, or 'unknown' when the
+      product has no category or the category has no translation.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - order_id
+              - order_item_id
+    columns:
+      - name: order_id
+        description: Order the line belongs to.
+        data_tests:
+          - not_null
+      - name: order_item_id
+        description: Line number within the order, starting at 1.
+        data_tests:
+          - not_null
+      - name: product_id
+        description: Product sold.
+      - name: seller_id
+        description: Seller who sold the line.
+      - name: customer_id
+        description: Per-order customer key of the order.
+      - name: customer_unique_id
+        description: Stable customer identifier.
+        data_tests:
+          - not_null
+      - name: order_status
+        description: Lifecycle status of the order.
+        data_tests:
+          - not_null
+      - name: order_purchase_timestamp
+        description: When the order was placed.
+      - name: order_approved_at
+        description: When payment was approved, null until approved.
+      - name: order_delivered_carrier_date
+        description: When the order was handed to the carrier, null until then.
+      - name: order_delivered_customer_date
+        description: When the customer received the order, null until then.
+      - name: order_estimated_delivery_date
+        description: Delivery date promised to the customer.
+      - name: shipping_limit_date
+        description: Latest date the seller may hand the item to the carrier.
+      - name: price
+        description: Item price.
+      - name: freight_value
+        description: Freight charged for the line.
+      - name: product_category_name
+        description: Category in Portuguese; null when the product has none.
+      - name: product_category
+        description: English category, 'unknown' when missing or untranslated.
+        data_tests:
+          - not_null
+      - name: product_weight_g
+        description: Product weight in grams.
+      - name: seller_city
+        description: Seller city, lower-cased.
+      - name: seller_state
+        description: Seller state code.
+
+  - name: int_review_enriched
+    description: >
+      Reviews with order and customer context. Grain: one row per (review_id, order_id). Product
+      context is at order level: product_count distinct products, and the product of the first line
+      (lowest order_item_id) as primary_product_id and primary_product_category.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - review_id
+              - order_id
+    columns:
+      - name: review_id
+        description: Review identifier; unique only together with order_id.
+        data_tests:
+          - not_null
+      - name: order_id
+        description: Reviewed order.
+        data_tests:
+          - not_null
+      - name: review_score
+        description: Satisfaction score from 1 to 5.
+        data_tests:
+          - not_null
+      - name: review_comment_title
+        description: Optional comment title.
+      - name: review_comment_message
+        description: Optional comment text.
+      - name: review_creation_date
+        description: When the satisfaction survey was sent.
+      - name: review_answer_timestamp
+        description: When the survey was answered.
+      - name: customer_id
+        description: Per-order customer key of the order.
+      - name: customer_unique_id
+        description: Stable customer identifier.
+        data_tests:
+          - not_null
+      - name: order_status
+        description: Lifecycle status of the order.
+        data_tests:
+          - not_null
+      - name: order_purchase_timestamp
+        description: When the order was placed.
+      - name: order_delivered_customer_date
+        description: When the customer received the order, null until then.
+      - name: product_count
+        description: Distinct products on the order, 0 when the order has no items.
+      - name: primary_product_id
+        description: Product of the first order line, null when the order has no items.
+      - name: primary_product_category
+        description: English category of the primary product.
