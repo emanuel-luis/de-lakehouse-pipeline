@@ -77,8 +77,10 @@ jobs:
           state=""
           for _ in $(seq 1 72); do
             sleep 10
-            runs="$(docker compose exec -T scheduler airflow dags list-runs lakehouse_pipeline -o json || true)"
-            state="$(jq -r '[.[] | select(.run_id | startswith("scheduled__"))][0].state // empty' <<<"$runs" 2>/dev/null || true)"
+            # read the metadata DB: the Airflow CLI prints warnings on stdout around its JSON
+            state="$(docker compose exec -T postgres psql -U airflow -d airflow -tAc \
+              "select state from dag_run where dag_id = 'lakehouse_pipeline'
+               and run_type = 'scheduled' order by id desc limit 1" || true)"
             echo "scheduled run state: ${state:-none yet}"
             case "$state" in success|failed) break ;; esac
           done
