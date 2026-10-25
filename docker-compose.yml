@@ -4,11 +4,10 @@ name: de-lakehouse-pipeline
 
 x-airflow-common: &airflow-common
   # The DAG, dbt project, manifest and pipeline venv are baked into the image (no bind mounts):
-  # what CI and compose test is the image that would ship.
-  build:
-    context: .
-    dockerfile: airflow/Dockerfile
+  # what CI and compose test is the image that would ship. Only airflow-init builds it; the other
+  # services reuse it (several services building one tag in parallel fail on Docker Desktop).
   image: de-lakehouse-pipeline-airflow:local
+  pull_policy: never
   environment: &airflow-env
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
@@ -48,6 +47,11 @@ services:
 
   airflow-init:
     <<: *airflow-common
+    build:
+      context: .
+      dockerfile: airflow/Dockerfile
+    # Rebuild on every `up`, so DAG and dbt edits always reach the image.
+    pull_policy: build
     depends_on:
       postgres:
         condition: service_healthy
