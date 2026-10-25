@@ -1,0 +1,7 @@
+de_lakehouse_pipeline:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "{{ env_var('LAKEHOUSE_DUCKDB_PATH', '../data/warehouse/lakehouse.duckdb') }}"
+      threads: 4
