@@ -1,0 +1,63 @@
+[project]
+name = "de-lakehouse-pipeline"
+version = "0.1.0"
+description = "End-to-end ELT lakehouse on open e-commerce data: Polars ingestion, dbt medallion on DuckDB, Airflow + Cosmos orchestration."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+authors = [{ name = "Emanuel Luis", email = "emanuel.filho08@gmail.com" }]
+dependencies = [
+    "polars>=2.0,<3",
+    # Capped below 2.0 until DuckDB 2.0 is verified with dbt-duckdb.
+    "duckdb>=1.5,<2",
+    "pydantic>=2.14,<3",
+    "pydantic-settings>=2.16,<3",
+    "dbt-core>=1.12,<1.13",
+    "dbt-duckdb>=1.11,<1.12",
+]
+
+[project.optional-dependencies]
+kaggle = ["kagglehub>=1.0.3,<2"]
+
+[project.urls]
+Repository = "https://github.com/emanuel-luis/de-lakehouse-pipeline"
+
+[project.scripts]
+lakehouse = "de_lakehouse_pipeline.cli:main"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.17.2",
+    "mypy>=2.4",
+    "pytest>=9.1",
+    "pytest-timeout>=2.4",
+    "hypothesis>=6.170",
+]
+
+[build-system]
+requires = ["uv_build>=0.13.5,<0.14"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# A broad except needs `# noqa: BLE001 - reason`.
+extend-select = ["BLE", "I", "UP", "B", "SIM", "RUF", "DTZ"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["DTZ"]
+
+[tool.mypy]
+files = ["src"]
+python_version = "3.12"
+strict = true
+enable_error_code = ["ignore-without-code"]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-markers --strict-config -m 'not slow'"
+testpaths = ["tests"]
+timeout = 120
+markers = ["slow: end-to-end tests that run dbt (deselected by default; run with -m slow)"]
