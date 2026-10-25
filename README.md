@@ -137,7 +137,7 @@ Airflow 3.3.2 runs the pipeline on an hourly schedule, with dbt orchestrated by 
 make up      # builds the image, creates the secrets in .env, starts the stack
 ```
 
-The UI is at http://localhost:8080. It uses Airflow's simple auth manager with every user as admin and no login: local use only, never expose it. `make up` appends a JWT secret and a Fernet key to the gitignored `.env` when they are missing and never prints them.
+The UI is at http://localhost:8080. It uses Airflow's simple auth manager with every user as admin and no login: local use only, so compose publishes the port on 127.0.0.1 only. `make up` appends a JWT secret and a Fernet key to the gitignored `.env` when they are missing and never prints them.
 
 The DAG `lakehouse_pipeline` (`@hourly`, one active run at a time, no catchup) runs, in order:
 

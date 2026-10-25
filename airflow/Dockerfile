@@ -12,7 +12,7 @@ WORKDIR /build
 COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY src ./src
 RUN uv export --frozen --no-dev --no-emit-project --output-file requirements.txt \
-    && uv venv --python /usr/local/bin/python /opt/lakehouse-venv \
+    && uv venv --python "$(command -v python)" /opt/lakehouse-venv \
     && uv pip install --python /opt/lakehouse-venv/bin/python --require-hashes -r requirements.txt \
     && uv build --wheel --out-dir dist \
     && uv pip install --python /opt/lakehouse-venv/bin/python --no-deps dist/*.whl

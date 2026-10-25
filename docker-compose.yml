@@ -61,7 +61,8 @@ services:
     <<: *airflow-common
     command: api-server
     ports:
-      - "8080:8080"
+      # Loopback only: every visitor is an admin (see the header), so never publish it on the LAN.
+      - "127.0.0.1:8080:8080"
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8080/api/v2/monitor/health"]
       interval: 10s
