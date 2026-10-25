@@ -40,6 +40,19 @@ def test_source_creates_warehouse_dir_but_not_file(
     assert not list((tmp_path / "fresh" / "warehouse").iterdir())
 
 
+def test_source_if_missing_skips_only_when_all_csvs_exist(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("LAKEHOUSE_DATA_DIR", str(tmp_path))
+    assert main(["source", "--orders", "200", "--if-missing"]) == 0
+    assert "wrote 9 source files" in capsys.readouterr().out
+    assert main(["source", "--if-missing"]) == 0
+    assert "nothing to do" in capsys.readouterr().out
+    (tmp_path / "source" / "olist_orders_dataset.csv").unlink()
+    assert main(["source", "--orders", "200", "--if-missing"]) == 0
+    assert "wrote 9 source files" in capsys.readouterr().out
+
+
 def test_orders_below_minimum_is_a_usage_error(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as exc:
         main(["source", "--orders", "100"])

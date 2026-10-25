@@ -47,6 +47,9 @@ def _build_parser() -> argparse.ArgumentParser:
     source = sub.add_parser("source", help="create the source CSVs (synthetic or Kaggle)")
     source.add_argument("--orders", type=_orders, help="synthetic order count (default: settings)")
     source.add_argument("--seed", type=int, help="synthetic seed (default: settings)")
+    source.add_argument(
+        "--if-missing", action="store_true", help="do nothing when all source CSVs already exist"
+    )
     ing = sub.add_parser("ingest", help="source CSVs -> typed landing Parquet")
     ing.add_argument("--tables", nargs="+", choices=sorted(CONTRACTS), help="default: all")
     ing.add_argument("--mode", choices=("full", "incremental"), default="full")
@@ -83,7 +86,13 @@ def main(argv: list[str] | None = None) -> int:
                 overrides["synthetic_orders"] = args.orders
             if args.seed is not None:
                 overrides["synthetic_seed"] = args.seed
-            paths = prepare_source(Settings(**overrides))
+            settings = Settings(**overrides)
+            if args.if_missing and all(
+                (settings.source_dir / c.source_file).is_file() for c in CONTRACTS.values()
+            ):
+                print("source CSVs already exist: nothing to do")
+                return 0
+            paths = prepare_source(settings)
             print(f"wrote {len(paths)} source files")
             return 0
         settings = Settings()
