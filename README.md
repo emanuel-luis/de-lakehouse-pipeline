@@ -15,7 +15,8 @@ An end-to-end ELT pipeline on open e-commerce data: Polars ingestion with typed 
 - Run metadata: each run records a run_id, UTC timestamps, row counts and rejects per table in an ingest log, and a dbt test reconciles the landing data against that log.
 - A four-layer dbt build on DuckDB (staging, bronze, intermediate, marts) over all nine Olist tables: deduplicated bronze tables, enriched views, star-schema marts with enforced model contracts, a description on every mart column, and tests on keys, ranges and relationships.
 - Change data capture on a source with no update column: a simulator changes the source, the ingest lands only the rows past a watermark kept in the ingest log, and `bronze_orders` merges them incrementally.
-- One-command reproducible demo, plus CI that runs lint, tests, the full pipeline and the CDC demo with no credentials.
+- Orchestration with Airflow 3 and Astronomer Cosmos: an hourly DAG runs source, CDC simulation and incremental ingest, then every dbt model and test as its own Airflow task, in a local docker compose stack. A one-slot pool serializes the tasks against DuckDB's single writer.
+- One-command reproducible demo, plus CI that runs lint, tests, the full pipeline, the CDC demo and the DAG integrity test with no credentials.
 
 ## Architecture
 
@@ -34,9 +35,13 @@ flowchart LR
   G --> J["dbt marts<br/>tables, enforced contracts"]
   I --> J
   J --> H[("DuckDB warehouse")]
+  subgraph AF["Airflow 3 + Cosmos, hourly DAG lakehouse_pipeline"]
+    direction LR
+    S1["source --if-missing"] --> S2["cdc simulate"] --> S3["ingest --mode incremental"] --> S4["Cosmos DbtTaskGroup<br/>one task per model and test"]
+  end
 ```
 
-Python owns source to landing and never writes DuckDB. dbt is the only DuckDB writer: its sources read the landing Parquet directly, so there is one writer and no lock contention.
+Python owns source to landing and never writes DuckDB. dbt is the only DuckDB writer: its sources read the landing Parquet directly, so there is one writer and no lock contention. The Airflow DAG runs the same commands in order (see Orchestration); it adds scheduling and per-task visibility, not new logic.
 
 | Layer | Location | Format | Owner | Contract and checks |
 | --- | --- | --- | --- | --- |
@@ -124,9 +129,42 @@ Known limits of this design:
 - A change that sets no lifecycle timestamp (for example a status fix with no new date) does not move `order_updated_at` and is not captured.
 - The strict `>` comparison assumes the source clock never goes backwards; a late write stamped at or before the watermark is missed.
 
+## Orchestration
+
+Airflow 3.3.2 runs the pipeline on an hourly schedule, with dbt orchestrated by [Astronomer Cosmos](https://astronomer.github.io/astronomer-cosmos/) 1.15.1. Prerequisite: Docker with compose.
+
+```bash
+make up      # builds the image, creates the secrets in .env, starts the stack
+```
+
+The UI is at http://localhost:8080. It uses Airflow's simple auth manager with every user as admin and no login: local use only, never expose it. `make up` appends a JWT secret and a Fernet key to the gitignored `.env` when they are missing and never prints them.
+
+The DAG `lakehouse_pipeline` (`@hourly`, one active run at a time, no catchup) runs, in order:
+
+1. `lakehouse source --if-missing`: writes the synthetic source only when it does not exist yet.
+2. `lakehouse cdc simulate`: changes the source.
+3. `lakehouse ingest --mode incremental`: lands the rows past the watermark.
+4. A Cosmos task group built from the dbt manifest: one Airflow task per model and per test.
+
+Like any Airflow DAG, it starts paused. Unpause it in the UI, trigger a run there, or use the CLI:
+
+```bash
+docker compose exec scheduler airflow dags unpause lakehouse_pipeline
+docker compose exec scheduler airflow dags trigger lakehouse_pipeline
+```
+
+Every Cosmos task, models and tests alike, runs its own dbt process, and each one opens DuckDB for writing. DuckDB allows one writer, so the stack creates a pool named `duckdb_writer` with 1 slot and every Cosmos task uses it. The three bash tasks need no pool because Python never writes DuckDB.
+
+The DAG, the dbt project, the manifest (written by `dbt parse` at build time) and the pipeline virtualenv are baked into the image; there are no bind mounts, so a DAG edit needs another `make up`, which rebuilds the image. Warehouse and landing data live in the named volume `lakehouse-data`.
+
+```bash
+make dag-test   # DAG integrity test: dbt parse, then DagBag import checks in a throwaway Airflow + Cosmos venv
+make down       # stops the stack and deletes its volumes, including the warehouse
+```
+
 ## Tech stack
 
-Python 3.12 · Polars · Pydantic · DuckDB · dbt-core 1.12 · dbt-duckdb · dbt_utils · uv · ruff · mypy · pytest · Hypothesis · GitHub Actions
+Python 3.12 · Polars · Pydantic · DuckDB · dbt-core 1.12 · dbt-duckdb · dbt_utils · Airflow 3.3 · Astronomer Cosmos · Docker Compose · uv · ruff · mypy · pytest · Hypothesis · GitHub Actions
 
 ## Project structure
 
@@ -134,8 +172,10 @@ Python 3.12 · Polars · Pydantic · DuckDB · dbt-core 1.12 · dbt-duckdb · db
 src/de_lakehouse_pipeline/   ingestion: settings, contracts, sources, landing, run log, CLI
 dbt/                         dbt project: staging, bronze, intermediate, marts, generic and singular tests, profiles
 tests/                       pytest suite (hermetic: each test runs in its own temp dir)
+airflow/                     Dockerfile, the lakehouse_pipeline DAG and its integrity test
+docker-compose.yml          local Airflow stack: Postgres, scheduler, API server, DAG processor
 docs/                        implementation plan and decision log
-.github/workflows/           ci.yml, security.yml
+.github/workflows/           ci.yml, compose.yml, security.yml
 Makefile                     single entry point for local runs and CI
 ```
 
@@ -156,18 +196,22 @@ Makefile                     single entry point for local runs and CI
 | `make summary` | print the last ingest run and mart row counts |
 | `make demo` | source, ingest, dbt-deps, dbt-build, summary |
 | `make cdc-demo` | demo, then simulate source changes, ingest incrementally, build, and repeat with an empty increment |
+| `make up` | start the Airflow stack (creates missing secrets in `.env`) |
+| `make down` | stop the stack and delete its volumes |
+| `make airflow-manifest` | dbt deps and parse: writes `dbt/target/manifest.json` for the DAG |
+| `make dag-test` | DAG integrity test in a throwaway Airflow 3.3.2 + Cosmos venv |
 | `make clean` | delete generated data and dbt build output |
 
-CI runs three jobs: lint (ruff and mypy, strict on `src`), test (pytest with an 80% coverage gate), and pipeline (`make demo`, `make cdc-demo` and the slow end-to-end test on synthetic data). Configuration is documented in `.env.example`.
+CI runs four jobs: lint (ruff and mypy, strict on `src`), test (pytest with an 80% coverage gate), pipeline (`make demo`, `make cdc-demo` and the slow end-to-end test on synthetic data), and dags (`make dag-test`). A separate compose workflow builds the image, starts the stack, checks that the DAG has no import errors and runs `airflow dags test lakehouse_pipeline`; on pull requests it runs only when `airflow/`, `dbt/`, `src/`, `uv.lock` or the compose file change, and it also runs on pushes to main, weekly and on demand. Configuration is documented in `.env.example`.
 
 ## Roadmap
 
-This repository ships in stacked pull requests, one per phase. The first three are implemented.
+This repository ships in stacked pull requests, one per phase. The first four are implemented.
 
 - PR1, minimum shippable: ingestion with contracts, dbt staging and marts, tests, CI, `make demo`.
 - PR2, full medallion: staging, bronze, intermediate and marts for all nine tables.
-- PR3, CDC simulation: an incremental load driven by a watermark in the ingest log, and an incremental `bronze_orders`. This is what you are reading.
-- PR4, upcoming: orchestration with Airflow 3 and Astronomer Cosmos.
+- PR3, CDC simulation: an incremental load driven by a watermark in the ingest log, and an incremental `bronze_orders`.
+- PR4, orchestration: Airflow 3 and Astronomer Cosmos in a docker compose stack, with the DAG integrity test and a compose smoke workflow. This is what you are reading.
 - PR5, upcoming: Elementary observability and a static docs site.
 
 Design details: [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md). Decision log: [docs/DECISIONS.md](docs/DECISIONS.md).
