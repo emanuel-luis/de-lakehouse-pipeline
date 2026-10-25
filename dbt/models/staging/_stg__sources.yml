@@ -19,6 +19,24 @@ sources:
       - name: customers
         description: One row per customer_id (a customer_id is created per order) as extracted.
         data_tests: *reconcile
+      - name: products
+        description: One row per product as extracted; the Olist header typos "lenght" are kept as delivered.
+        data_tests: *reconcile
+      - name: sellers
+        description: One row per seller as extracted.
+        data_tests: *reconcile
+      - name: reviews
+        description: One row per (review_id, order_id) as extracted (source file order_reviews); review_id repeats across orders.
+        data_tests: *reconcile
+      - name: payments
+        description: One row per (order_id, payment_sequential) as extracted (source file order_payments).
+        data_tests: *reconcile
+      - name: geolocation
+        description: Many rows per zip prefix (exact and jittered duplicates) as extracted; no natural key.
+        data_tests: *reconcile
+      - name: category_translation
+        description: Product category name in Portuguese and English, one row per category as extracted.
+        data_tests: *reconcile
 
   - name: ingest
     description: Append-only run log written by the Python ingestion, one row per table and run.
