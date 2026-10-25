@@ -17,7 +17,7 @@ DATA_SOURCE ?= synthetic
 UV_RUN := uv run --locked $(if $(filter kaggle,$(DATA_SOURCE)),--extra kaggle,)
 DBT_FLAGS := --project-dir dbt --profiles-dir dbt
 
-.PHONY: help install lint fmt test test-fast source ingest dbt-deps dbt-build summary demo clean
+.PHONY: help install lint fmt test test-fast source ingest dbt-deps dbt-build summary demo cdc-demo clean
 
 help: ## list the targets
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-12s %s\n", $$1, $$2}'
@@ -60,6 +60,16 @@ demo: ## end to end: source -> landing -> dbt build -> summary
 	$(MAKE) --no-print-directory source
 	$(MAKE) --no-print-directory ingest
 	$(MAKE) --no-print-directory dbt-deps
+	$(MAKE) --no-print-directory dbt-build
+	$(MAKE) --no-print-directory summary
+
+cdc-demo: ## demo, then a simulated source change loaded incrementally, then an empty increment
+	$(MAKE) --no-print-directory demo
+	$(UV_RUN) lakehouse cdc simulate
+	$(UV_RUN) lakehouse ingest --mode incremental
+	$(MAKE) --no-print-directory dbt-build
+	$(UV_RUN) lakehouse summary --watermarks
+	$(UV_RUN) lakehouse ingest --mode incremental
 	$(MAKE) --no-print-directory dbt-build
 	$(MAKE) --no-print-directory summary
 
