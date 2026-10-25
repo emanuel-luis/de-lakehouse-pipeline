@@ -1,0 +1,30 @@
+version: 2
+
+sources:
+  - name: olist
+    description: >
+      Typed landing Parquet written by the Python ingestion (source CSV to landing).
+      One directory per table, one or more files per directory.
+    config:
+      external_location: >-
+        read_parquet('{{ env_var("LAKEHOUSE_DATA_DIR") }}/landing/{name}/*.parquet', union_by_name = true)
+    tables:
+      - name: orders
+        description: One row per order as extracted, plus the derived order_updated_at.
+        data_tests: &reconcile
+          - reconciles_with_ingest_log
+      - name: order_items
+        description: One row per order line as extracted.
+        data_tests: *reconcile
+      - name: customers
+        description: One row per customer_id (a customer_id is created per order) as extracted.
+        data_tests: *reconcile
+
+  - name: ingest
+    description: Append-only run log written by the Python ingestion, one row per table and run.
+    tables:
+      - name: ingest_log
+        description: One row per (run_id, table_name) with status and row counts.
+        config:
+          external_location: >-
+            read_parquet('{{ env_var("LAKEHOUSE_DATA_DIR") }}/_meta/ingest_log/*.parquet', union_by_name = true)

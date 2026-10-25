@@ -1,0 +1,112 @@
+version: 2
+
+models:
+  - name: fct_orders
+    description: >
+      Order fact. Grain: one row per order_id. Item amounts are summed per order; orders without
+      items have total_items 0 and amounts 0.00. delivery_days is whole days from purchase to
+      delivery (null if not delivered). An order is late when it was delivered after the estimated
+      date; undelivered orders are not late.
+    columns:
+      - name: order_id
+        description: Order identifier, primary key.
+        data_type: varchar
+        data_tests:
+          - unique
+          - not_null
+      - name: customer_id
+        description: Per-order customer key from the source.
+        data_type: varchar
+        data_tests:
+          - not_null
+      - name: customer_unique_id
+        description: Stable customer identifier, foreign key to dim_customers.
+        data_type: varchar
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_customers')
+                field: customer_unique_id
+      - name: order_status
+        description: Lifecycle status, lower-cased.
+        data_type: varchar
+      - name: order_purchase_timestamp
+        description: When the order was placed.
+        data_type: timestamp
+      - name: order_approved_at
+        description: When payment was approved, null until approved.
+        data_type: timestamp
+      - name: order_delivered_carrier_date
+        description: When the order was handed to the carrier, null until then.
+        data_type: timestamp
+      - name: order_delivered_customer_date
+        description: When the customer received the order, null until then.
+        data_type: timestamp
+      - name: order_estimated_delivery_date
+        description: Delivery date promised to the customer.
+        data_type: timestamp
+      - name: total_items
+        description: Number of item lines on the order, 0 when none.
+        data_type: bigint
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: total_amount
+        description: Sum of item prices, 0.00 when the order has no items.
+        data_type: decimal(18,2)
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: total_freight
+        description: Sum of item freight values, 0.00 when the order has no items.
+        data_type: decimal(18,2)
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: delivery_days
+        description: Whole days from purchase to delivery, null if not delivered.
+        data_type: integer
+      - name: is_late_delivery
+        description: True when delivered after the estimated delivery date.
+        data_type: boolean
+        data_tests:
+          - not_null
+
+  - name: dim_customers
+    description: >
+      Customer dimension. Grain: one row per customer_unique_id. Zip prefix, city and state come
+      from the customer's latest order (ties broken by customer_id); customers without orders have
+      total_orders 0 and null order timestamps.
+    columns:
+      - name: customer_unique_id
+        description: Stable customer identifier, primary key.
+        data_type: varchar
+        data_tests:
+          - unique
+          - not_null
+      - name: customer_zip_code_prefix
+        description: Zip code prefix from the latest order, 5 characters.
+        data_type: varchar
+      - name: customer_city
+        description: City from the latest order, lower-cased.
+        data_type: varchar
+      - name: customer_state
+        description: State code from the latest order.
+        data_type: varchar
+      - name: first_order_at
+        description: Purchase timestamp of the first order.
+        data_type: timestamp
+      - name: last_order_at
+        description: Purchase timestamp of the latest order.
+        data_type: timestamp
+      - name: total_orders
+        description: Number of orders placed.
+        data_type: bigint
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
