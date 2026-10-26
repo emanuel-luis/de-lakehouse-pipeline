@@ -1,8 +1,8 @@
 name: compose
 
 # Smoke test of the Airflow docker compose stack: build the image, start the stack, no DAG import
-# errors, and one `airflow dags test` run of lakehouse_pipeline. Heavy (minutes), so PRs trigger it
-# only when they touch what goes into the image.
+# errors, one `airflow dags test` run of lakehouse_pipeline, then one run driven by the scheduler.
+# Heavy (minutes), so PRs trigger it only when they touch what goes into the image.
 on:
   push:
     branches: [main]
@@ -60,13 +60,32 @@ jobs:
         run: |
           out="$(docker compose exec -T scheduler airflow dags list-import-errors -o json)"
           echo "$out"
-          # pass on empty output, an empty JSON list or "No data found"; anything else is an error
-          case "$(printf '%s' "$out" | tr -d '[:space:]')" in
-            ""|"[]"|*Nodatafound*) ;;
-            *) echo "DAG import errors found" >&2; exit 1 ;;
-          esac
+          # The CLI may print warnings (e.g. graphviz missing) before the result, so look for the
+          # result line itself: an empty JSON list, or "No data found". Anything else fails.
+          if ! printf '%s\n' "$out" | grep -qxE '\[\]|No data found'; then
+            echo "DAG import errors found" >&2
+            exit 1
+          fi
       - name: airflow dags test lakehouse_pipeline
         run: docker compose exec -T scheduler airflow dags test lakehouse_pipeline
+      # dags test runs every task in one process. This proves the real path: the scheduler queues
+      # a scheduled run, LocalExecutor starts the tasks, and they call the Execution API on the
+      # api-server service. Unpausing creates one run for the latest hourly interval.
+      - name: One scheduler-driven run of lakehouse_pipeline
+        run: |
+          docker compose exec -T scheduler airflow dags unpause lakehouse_pipeline
+          state=""
+          for _ in $(seq 1 72); do
+            sleep 10
+            # read the metadata DB: the Airflow CLI prints warnings on stdout around its JSON
+            state="$(docker compose exec -T postgres psql -U airflow -d airflow -tAc \
+              "select state from dag_run where dag_id = 'lakehouse_pipeline'
+               and run_type = 'scheduled' order by id desc limit 1" || true)"
+            echo "scheduled run state: ${state:-none yet}"
+            case "$state" in success|failed) break ;; esac
+          done
+          docker compose exec -T scheduler airflow dags pause lakehouse_pipeline
+          [ "$state" = success ] || { echo "the scheduled run did not succeed within 12 min" >&2; exit 1; }
       - name: Dump compose logs
         if: failure()
         run: docker compose logs --no-color --tail=300
