@@ -1,4 +1,7 @@
-# Weekly update PRs, one per ecosystem: the SHA-pinned actions and uv.lock.
+# Weekly update PRs, one per ecosystem: the SHA-pinned actions, uv.lock, the Dockerfile's uv image
+# and the compose file's image tags. The Airflow base image is ignored on purpose: bump it by hand
+# together with the `apache-airflow==` pin and the constraints URL in airflow/Dockerfile and the
+# Makefile, which must name the same release.
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -11,3 +14,17 @@ updates:
     schedule: { interval: weekly }
     groups:
       uv: { patterns: ["*"] }
+  - package-ecosystem: docker
+    directory: /airflow
+    schedule: { interval: weekly }
+    ignore:
+      - dependency-name: apache/airflow
+    groups:
+      docker: { patterns: ["*"] }
+  # `docker-compose` is a supported ecosystem value:
+  # https://docs.github.com/en/code-security/dependabot/ecosystems-supported-by-dependabot/supported-ecosystems-and-repositories
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule: { interval: weekly }
+    groups:
+      docker-compose: { patterns: ["*"] }
