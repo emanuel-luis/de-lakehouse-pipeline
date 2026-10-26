@@ -21,7 +21,7 @@ DBT_FLAGS := --project-dir dbt --profiles-dir dbt
 AIRFLOW_VENV ?= $(HOME)/.venvs/de-lakehouse-airflow
 AIRFLOW_CONSTRAINTS ?= https://raw.githubusercontent.com/apache/airflow/constraints-3.3.2/constraints-3.12.txt
 
-.PHONY: help install lint fmt test test-fast source ingest dbt-deps dbt-build summary demo cdc-demo clean up down airflow-manifest dag-test
+.PHONY: help install lint fmt test test-fast source ingest dbt-deps dbt-build summary demo cdc-demo clean up down airflow-manifest dag-test site
 
 help: ## list the targets
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-12s %s\n", $$1, $$2}'
@@ -101,6 +101,15 @@ dag-test: airflow-manifest ## DAG integrity test in a throwaway Airflow 3.3.2 + 
 		apache-airflow==3.3.2 apache-airflow-providers-standard astronomer-cosmos==1.15.1 pytest
 	AIRFLOW_HOME="$$(mktemp -d)" AIRFLOW__CORE__LOAD_EXAMPLES=False LAKEHOUSE_DBT_PROJECT_DIR="$(abspath dbt)" \
 		"$(AIRFLOW_VENV)/bin/python" -m pytest -c /dev/null --rootdir airflow -q airflow/tests
+
+site: ## build site/ (dbt docs, Elementary report, landing page); run make demo or cdc-demo first
+	rm -rf site
+	mkdir -p site/dbt site/elementary
+	$(UV_RUN) dbt docs generate --static $(DBT_FLAGS)
+	cp dbt/target/static_index.html site/dbt/index.html
+	uv run --locked --group site edr report --project-dir dbt --profiles-dir dbt --config-dir dbt/edr \
+		--file-path "$(abspath site/elementary/index.html)" --open-browser false
+	cp docs/site/index.html site/index.html
 
 clean: ## delete generated data under ./data and dbt build output
 	find data -mindepth 1 -maxdepth 1 ! -name .gitkeep -exec rm -rf {} +

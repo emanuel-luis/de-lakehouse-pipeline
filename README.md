@@ -15,8 +15,9 @@ An end-to-end ELT pipeline on open e-commerce data: Polars ingestion with typed 
 - Run metadata: each run records a run_id, UTC timestamps, row counts and rejects per table in an ingest log, and a dbt test reconciles the landing data against that log.
 - A four-layer dbt build on DuckDB (staging, bronze, intermediate, marts) over all nine Olist tables: deduplicated bronze tables, enriched views, star-schema marts with enforced model contracts, a description on every mart column, and tests on keys, ranges and relationships.
 - Change data capture on a source with no update column: a simulator changes the source, the ingest lands only the rows past a watermark kept in the ingest log, and `bronze_orders` merges them incrementally.
-- Orchestration with Airflow 3 and Astronomer Cosmos: an hourly DAG runs source, CDC simulation and incremental ingest, then every dbt model and test as its own Airflow task, in a local docker compose stack. A one-slot pool serializes the tasks against DuckDB's single writer.
-- One-command reproducible demo, plus CI that runs lint, tests, the full pipeline, the CDC demo and the DAG integrity test with no credentials.
+- Orchestration with Airflow 3 and Astronomer Cosmos: an hourly DAG runs source, CDC simulation and incremental ingest, then Elementary's tables, every project dbt model and test as its own Airflow task, and the Elementary report, in a local docker compose stack. A one-slot pool serializes the tasks against DuckDB's single writer.
+- Data observability with Elementary: schema change checks on every bronze table and a row count anomaly check on bronze_orders, reported next to the dbt docs in a static site that CI publishes to GitHub Pages.
+- One-command reproducible demo, plus CI that runs lint, tests, the full pipeline, the CDC demo, the DAG integrity test and the site build with no credentials.
 
 ## Architecture
 
@@ -37,7 +38,7 @@ flowchart LR
   J --> H[("DuckDB warehouse")]
   subgraph AF["Airflow 3 + Cosmos, hourly DAG lakehouse_pipeline"]
     direction LR
-    S1["source --if-missing"] --> S2["cdc simulate"] --> S3["ingest --mode incremental"] --> S4["Cosmos DbtTaskGroup<br/>one task per model and test"]
+    S1["source --if-missing"] --> S2["cdc simulate"] --> S3["ingest --mode incremental"] --> S5["dbt run --select elementary"] --> S4["Cosmos DbtTaskGroup<br/>one task per model and test"] --> S6["edr report"]
   end
 ```
 
@@ -144,7 +145,9 @@ The DAG `lakehouse_pipeline` (`@hourly`, one active run at a time, no catchup) r
 1. `lakehouse source --if-missing`: writes the synthetic source only when it does not exist yet.
 2. `lakehouse cdc simulate`: changes the source.
 3. `lakehouse ingest --mode incremental`: lands the rows past the watermark.
-4. A Cosmos task group built from the dbt manifest: one Airflow task per model and one for its tests. A test that reads two models, such as a relationships test between a fact and a dimension, gets its own task that waits for both, as `dbt build` would. The tests that reconcile each landing table with the ingest log read only sources, so they run as their own tasks right after `ingest`.
+4. `elementary_models`: `dbt run --select elementary` builds the package's own tables. It runs before the dbt tasks because Elementary's on-run-end hook, which stores results, and its tests read those tables.
+5. A Cosmos task group built from the dbt manifest: one Airflow task per project model and one for its tests. The Elementary package's own models are excluded from it (`exclude=["package:elementary"]`); the project's Elementary tests on bronze still run inside the per-model test tasks. A test that reads two models, such as a relationships test between a fact and a dimension, gets its own task that waits for both, as `dbt build` would. The tests that reconcile each landing table with the ingest log read only sources, so they run as their own tasks right after `ingest`. Elementary's on-run-end hook runs in every one of these dbt calls and stores their results, which adds a few seconds to each. The dbt artifacts (models, tests, sources) are uploaded once per run by `elementary_models`; the group's tasks skip that upload.
+6. `edr_report`: `edr report` reads the results and writes the report to `$LAKEHOUSE_DATA_DIR/site/elementary/index.html` inside the data volume. Nothing publishes it from the stack; the published site is built by CI (see Observability).
 
 Like any Airflow DAG, it starts paused. Unpause it in the UI, trigger a run there, or use the CLI:
 
@@ -153,7 +156,7 @@ docker compose exec scheduler airflow dags unpause lakehouse_pipeline
 docker compose exec scheduler airflow dags trigger lakehouse_pipeline
 ```
 
-Every Cosmos task, models and tests alike, runs its own dbt process, and each one opens DuckDB for writing. DuckDB allows one writer, so the stack creates a pool named `duckdb_writer` with 1 slot and every Cosmos task uses it. The three bash tasks need no pool because Python never writes DuckDB.
+Every Cosmos task, models and tests alike, runs its own dbt process, and each one opens DuckDB for writing. DuckDB allows one writer, so the stack creates a pool named `duckdb_writer` with 1 slot and every Cosmos task uses it, as do `elementary_models` and `edr_report`, which also open DuckDB through dbt. The three Python tasks need no pool because Python never writes DuckDB.
 
 The DAG, the dbt project, the manifest (written by `dbt parse` at build time) and the pipeline virtualenv are baked into the image; there are no bind mounts, so a DAG edit needs another `make up`, which rebuilds the image. Warehouse and landing data live in the named volume `lakehouse-data`.
 
@@ -162,19 +165,44 @@ make dag-test   # DAG integrity test: dbt parse, then DagBag import checks in a 
 make down       # stops the stack and deletes its volumes, including the warehouse
 ```
 
+## Observability
+
+The [Elementary](https://docs.elementary-data.com/) dbt package (0.26.1) is installed with the project. Its models and test results live in the DuckDB schema `elementary`; nothing else is written there.
+
+- `elementary.schema_changes` on every bronze table, severity error: a dropped, added or retyped column fails the build.
+- `elementary.volume_anomalies` on `bronze_orders`, severity warn. Bronze has no timestamp column, so it compares the table's row count between runs. It needs history to compare against, so a fresh database has nothing to flag; it warns instead of failing for that reason, and `make cdc-demo` adds runs.
+- Anonymous usage tracking is off for dbt (project flag) and for the edr CLI (`dbt/edr/config.yml`).
+
+The site is built from the current warehouse, so run `make demo` or `make cdc-demo` first:
+
+```bash
+make site   # writes site/index.html, site/dbt/index.html and site/elementary/index.html
+```
+
+`make site` runs `dbt docs generate --static`, then the edr CLI from the `site` dependency group (`uv sync --locked --group site` installs it; it is not part of a default sync), then copies the landing page from `docs/site/index.html`. Open `site/index.html` in a browser.
+
+CI builds the same site from synthetic data on every run and, on pushes to main, publishes it to GitHub Pages: https://emanuel-luis.github.io/de-lakehouse-pipeline/ (live after the first merge to main). The architecture notes are in [docs/architecture.md](docs/architecture.md).
+
+![dbt docs page for the fct_orders model, showing its details, description and columns](docs/img/dbt-docs.png)
+
+![Elementary report dashboard with test results, tables health and monitored tables](docs/img/elementary-report.png)
+
+Screenshots of the dbt docs (fct_orders model page) and the Elementary report dashboard, built from the synthetic data after `make cdc-demo`.
+
 ## Tech stack
 
-Python 3.12 · Polars · Pydantic · DuckDB · dbt-core 1.12 · dbt-duckdb · dbt_utils · Airflow 3.3 · Astronomer Cosmos · Docker Compose · uv · ruff · mypy · pytest · Hypothesis · GitHub Actions
+Python 3.12 · Polars · Pydantic · DuckDB · dbt-core 1.12 · dbt-duckdb · dbt_utils · Elementary · Airflow 3.3 · Astronomer Cosmos · Docker Compose · uv · ruff · mypy · pytest · Hypothesis · GitHub Actions
 
 ## Project structure
 
 ```
 src/de_lakehouse_pipeline/   ingestion: settings, contracts, sources, landing, run log, CLI
-dbt/                         dbt project: staging, bronze, intermediate, marts, generic and singular tests, profiles
+dbt/                         dbt project: staging, bronze, intermediate, marts, generic and singular tests, profiles, Elementary config
 tests/                       pytest suite (hermetic: each test runs in its own temp dir)
 airflow/                     Dockerfile, the lakehouse_pipeline DAG and its integrity test
 docker-compose.yml          local Airflow stack: Postgres, scheduler, API server, DAG processor
-docs/                        implementation plan and decision log
+docs/                        implementation plan, decision log, architecture notes
+docs/site/                   landing page for the published site
 .github/workflows/           ci.yml, compose.yml, security.yml
 Makefile                     single entry point for local runs and CI
 ```
@@ -200,19 +228,20 @@ Makefile                     single entry point for local runs and CI
 | `make down` | stop the stack and delete its volumes |
 | `make airflow-manifest` | dbt deps and parse: writes `dbt/target/manifest.json` for the DAG |
 | `make dag-test` | DAG integrity test in a throwaway Airflow 3.3.2 + Cosmos venv |
+| `make site` | build `site/`: dbt docs, Elementary report, landing page (run `make demo` first; needs `uv sync --locked --group site` once) |
 | `make clean` | delete generated data and dbt build output |
 
-CI runs four jobs: lint (ruff and mypy, strict on `src`), test (pytest with an 80% coverage gate), pipeline (`make demo`, `make cdc-demo` and the slow end-to-end test on synthetic data), and dags (`make dag-test`). A separate compose workflow builds the image, starts the stack, checks that the DAG has no import errors, runs `airflow dags test lakehouse_pipeline`, then unpauses the DAG and waits for one run driven by the scheduler; on pull requests it runs only when `airflow/`, `dbt/`, `src/`, `uv.lock` or the compose file change, and it also runs on pushes to main, weekly and on demand. Configuration is documented in `.env.example`.
+CI runs lint (ruff and mypy, strict on `src`), test (pytest with an 80% coverage gate), pipeline (`make demo`, `make cdc-demo` and the slow end-to-end test on synthetic data), dags (`make dag-test`) and site (`make cdc-demo`, `make site`, upload of the Pages artifact). A deploy-pages job publishes the artifact on pushes to main only. A separate compose workflow builds the image, starts the stack, checks that the DAG has no import errors, runs `airflow dags test lakehouse_pipeline`, then unpauses the DAG and waits for one run driven by the scheduler; on pull requests it runs only when `airflow/`, `dbt/`, `src/`, `uv.lock` or the compose file change, and it also runs on pushes to main, weekly and on demand. Configuration is documented in `.env.example`.
 
 ## Roadmap
 
-This repository ships in stacked pull requests, one per phase. The first four are implemented.
+This repository ships in stacked pull requests, one per phase. All five are implemented.
 
 - PR1, minimum shippable: ingestion with contracts, dbt staging and marts, tests, CI, `make demo`.
 - PR2, full medallion: staging, bronze, intermediate and marts for all nine tables.
 - PR3, CDC simulation: an incremental load driven by a watermark in the ingest log, and an incremental `bronze_orders`.
-- PR4, orchestration: Airflow 3 and Astronomer Cosmos in a docker compose stack, with the DAG integrity test and a compose smoke workflow. This is what you are reading.
-- PR5, upcoming: Elementary observability and a static docs site.
+- PR4, orchestration: Airflow 3 and Astronomer Cosmos in a docker compose stack, with the DAG integrity test and a compose smoke workflow.
+- PR5, observability: Elementary tests and a static site (dbt docs, Elementary report) published to GitHub Pages. This is what you are reading.
 
 Design details: [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md). Decision log: [docs/DECISIONS.md](docs/DECISIONS.md).
 

@@ -34,6 +34,8 @@ dev = [
     "hypothesis>=6.170",
     "pytest-cov>=7.0",
 ]
+# edr CLI that builds the Elementary report (make site). Not a default group.
+site = ["elementary-data[dbt1-duckdb]==0.26.1"]
 
 [build-system]
 requires = ["uv_build>=0.13.5,<0.14"]
