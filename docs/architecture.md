@@ -30,7 +30,7 @@ flowchart LR
 
 ## One writer
 
-Python never writes DuckDB; it reads it only through short read-only connections. dbt is the only writer, and it reads the landing Parquet directly. The same rule drives the Airflow setup: every Cosmos task runs a dbt process, so all of them use the one-slot pool `duckdb_writer`.
+Python never writes DuckDB; it reads it only through short read-only connections. dbt is the only writer, and it reads the landing Parquet directly. The same rule drives the Airflow setup: every Cosmos task, `elementary_models` and `edr_report` run a dbt or edr process that opens the file, so all of them use the one-slot pool `duckdb_writer`.
 
 ## Change data capture
 
@@ -38,7 +38,7 @@ Olist has no update column, so landing derives `order_updated_at` and uses it as
 
 ## Orchestration
 
-An hourly Airflow DAG runs three bash tasks (source, CDC simulation, incremental ingest) and then the dbt project as a Cosmos task group, one task per model and test, in a local docker compose stack.
+An hourly Airflow DAG runs three bash tasks (source, CDC simulation, incremental ingest) and then `elementary_models` (the Elementary package's tables), the dbt project as a Cosmos task group (one task per model and test, Elementary package models excluded) and `edr_report`, in a local docker compose stack.
 
 ## Observability
 
