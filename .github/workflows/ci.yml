@@ -2,8 +2,9 @@ name: ci
 
 # Lint gates the rest. `test` runs the fast suite with the coverage gate; `pipeline` runs the whole
 # demo (synthetic source -> landing -> dbt build -> summary), the CDC demo and the slow end-to-end
-# tests, with no credentials; `dags` runs the Airflow DAG integrity test (make dag-test); `site` builds the dbt docs,
-# the Elementary report and a landing page (make site) and uploads them as the Pages artifact;
+# tests, with no credentials; `dags` runs the Airflow DAG integrity test (make dag-test); `site`
+# builds the dbt docs, the Elementary report and a landing page (make site) and uploads them as
+# the Pages artifact;
 # `deploy-pages` publishes it, on pushes to main only. The docker compose smoke test lives in
 # compose.yml.
 on:

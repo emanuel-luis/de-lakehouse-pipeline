@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.
 
 ### Added
 
+- Airflow DAG: `elementary_models` (builds the Elementary package tables) before the Cosmos dbt group and `edr_report` (writes the Elementary report to the data volume) after it, both in pool `duckdb_writer`; the pipeline venv in the image now includes the `site` group (edr).
 - Elementary dbt package 0.26.1: `schema_changes` (error) on every bronze table and `volume_anomalies` (warn) on `bronze_orders`, writing only to schema `elementary`; an `elementary` profile on the same DuckDB file; anonymous tracking off for dbt and for the edr CLI.
 - Dependency group `site` with the edr CLI, and `make site`, which builds `site/` (dbt docs, Elementary report, landing page from `docs/site/index.html`).
 - CI jobs `site` (builds the site on every run) and `deploy-pages` (publishes it to GitHub Pages on pushes to main).

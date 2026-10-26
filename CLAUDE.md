@@ -33,14 +33,14 @@ Env vars read by Python and dbt: `LAKEHOUSE_DATA_DIR`, `LAKEHOUSE_DUCKDB_PATH`. 
 - `docs/`: plan, decision log, `architecture.md`, and `site/index.html` (landing page copied into the published site).
 - `tests/`: pytest suite; `test_cdc_e2e.py` is the `slow` dbt round trip.
 - `data/`: generated output (source, landing, rejects, `_meta`, warehouse). Only `.gitkeep` is tracked.
-- `airflow/`: `Dockerfile` (image with the DAG, dbt project, manifest and pipeline venv baked in), `dags/lakehouse_pipeline.py`, `tests/test_dag_integrity.py`.
+- `airflow/`: `Dockerfile` (image with the DAG, dbt project, manifest and pipeline venv baked in), `dags/lakehouse_pipeline.py` (source, cdc_simulate, ingest, elementary_models, dbt task group, edr_report), `tests/test_dag_integrity.py`.
 - `docker-compose.yml`: local Airflow stack (Postgres, init, API server, scheduler, DAG processor; LocalExecutor).
 - `.github/workflows/`: `ci.yml` (lint, test, pipeline, dags, site, deploy-pages), `compose.yml` (stack smoke test), `security.yml`.
 
 ## Invariants
 
 - dbt is the only process that writes DuckDB. Python reads DuckDB only through `duckdb.connect(path, read_only=True)` and closes it at once; an open handle blocks dbt.
-- Every Cosmos task of the DAG runs in pool `duckdb_writer` (1 slot): each runs a dbt process that opens DuckDB for writing. The bash tasks need no pool because Python never writes DuckDB. The DAG has `max_active_runs=1`.
+- Every Cosmos task of the DAG, plus `elementary_models` and `edr_report`, runs in pool `duckdb_writer` (1 slot): each runs a dbt or edr process that opens DuckDB for writing. The three Python tasks need no pool because Python never writes DuckDB. Cosmos excludes the Elementary package's own models (`package:elementary`); `elementary_models` builds them before the dbt group. The DAG has `max_active_runs=1`.
 - Landing, reject and source writes are atomic (temp file in the same directory, then `os.replace`). The ingest log row is written after the data it describes.
 - `rows_in = rows_out + rows_rejected` in every log row.
 - The synthetic generator and the CDC simulator never read the wall clock and are byte-deterministic per seed (stdlib `random.Random`; the simulator seeds with the seed and its data-derived clock).
