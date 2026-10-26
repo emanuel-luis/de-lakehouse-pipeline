@@ -183,6 +183,12 @@ make site   # writes site/index.html, site/dbt/index.html and site/elementary/in
 
 CI builds the same site from synthetic data on every run and, on pushes to main, publishes it to GitHub Pages: https://emanuel-luis.github.io/de-lakehouse-pipeline/ (live after the first merge to main). The architecture notes are in [docs/architecture.md](docs/architecture.md).
 
+![dbt docs page for the fct_orders model, showing its details, description and columns](docs/img/dbt-docs.png)
+
+![Elementary report dashboard with test results, tables health and monitored tables](docs/img/elementary-report.png)
+
+Screenshots of the dbt docs (fct_orders model page) and the Elementary report dashboard, built from the synthetic data after `make cdc-demo`.
+
 ## Tech stack
 
 Python 3.12 · Polars · Pydantic · DuckDB · dbt-core 1.12 · dbt-duckdb · dbt_utils · Elementary · Airflow 3.3 · Astronomer Cosmos · Docker Compose · uv · ruff · mypy · pytest · Hypothesis · GitHub Actions
