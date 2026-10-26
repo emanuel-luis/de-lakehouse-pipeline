@@ -36,3 +36,21 @@ def test_expected_tasks_and_pool(dagbag: DagBag) -> None:
     assert any(t.task_id.endswith(".test") or ".test" in t.task_id for t in cosmos)
     assert {t.pool for t in cosmos} == {"duckdb_writer"}
     assert {t.pool for t in dag.tasks if t not in cosmos} == {"default_pool"}
+
+
+def test_multi_parent_tests_run_after_every_parent(dagbag: DagBag) -> None:
+    """A relationships test reads two models, so it runs once both are built, as in dbt build."""
+    dag = dagbag.dags.get(DAG_ID)
+    assert dag is not None
+    detached = [t for t in dag.tasks if t.task_id.startswith("dbt.relationships_")]
+    assert detached, "relationships tests should be rendered as their own tasks"
+    for task in detached:
+        parents = {u for u in task.upstream_task_ids if u.startswith("dbt.")}
+        assert len(parents) >= 2, (task.task_id, sorted(parents))
+    test_name = (
+        "relationships_fct_orders_customer_unique_id__customer_unique_id__ref_dim_customers_"
+    )
+    task = dag.get_task(f"dbt.{test_name}_test")
+    assert {"dbt.fct_orders.test", "dbt.dim_customers.test"} <= task.upstream_task_ids
+    # and the per-model test tasks leave it out
+    assert test_name in str(dag.get_task("dbt.dim_customers.test").exclude).split()
