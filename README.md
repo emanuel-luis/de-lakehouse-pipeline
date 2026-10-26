@@ -144,7 +144,7 @@ The DAG `lakehouse_pipeline` (`@hourly`, one active run at a time, no catchup) r
 1. `lakehouse source --if-missing`: writes the synthetic source only when it does not exist yet.
 2. `lakehouse cdc simulate`: changes the source.
 3. `lakehouse ingest --mode incremental`: lands the rows past the watermark.
-4. A Cosmos task group built from the dbt manifest: one Airflow task per model and one for its tests. A test that reads two models, such as a relationships test between a fact and a dimension, gets its own task that waits for both, as `dbt build` would.
+4. A Cosmos task group built from the dbt manifest: one Airflow task per model and one for its tests. A test that reads two models, such as a relationships test between a fact and a dimension, gets its own task that waits for both, as `dbt build` would. The tests that reconcile each landing table with the ingest log read only sources, so they run as their own tasks right after `ingest`.
 
 Like any Airflow DAG, it starts paused. Unpause it in the UI, trigger a run there, or use the CLI:
 
@@ -202,7 +202,7 @@ Makefile                     single entry point for local runs and CI
 | `make dag-test` | DAG integrity test in a throwaway Airflow 3.3.2 + Cosmos venv |
 | `make clean` | delete generated data and dbt build output |
 
-CI runs four jobs: lint (ruff and mypy, strict on `src`), test (pytest with an 80% coverage gate), pipeline (`make demo`, `make cdc-demo` and the slow end-to-end test on synthetic data), and dags (`make dag-test`). A separate compose workflow builds the image, starts the stack, checks that the DAG has no import errors runs `airflow dags test lakehouse_pipeline`, then unpauses the DAG and waits for one run driven by the scheduler; on pull requests it runs only when `airflow/`, `dbt/`, `src/`, `uv.lock` or the compose file change, and it also runs on pushes to main, weekly and on demand. Configuration is documented in `.env.example`.
+CI runs four jobs: lint (ruff and mypy, strict on `src`), test (pytest with an 80% coverage gate), pipeline (`make demo`, `make cdc-demo` and the slow end-to-end test on synthetic data), and dags (`make dag-test`). A separate compose workflow builds the image, starts the stack, checks that the DAG has no import errors, runs `airflow dags test lakehouse_pipeline`, then unpauses the DAG and waits for one run driven by the scheduler; on pull requests it runs only when `airflow/`, `dbt/`, `src/`, `uv.lock` or the compose file change, and it also runs on pushes to main, weekly and on demand. Configuration is documented in `.env.example`.
 
 ## Roadmap
 
