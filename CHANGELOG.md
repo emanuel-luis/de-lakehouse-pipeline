@@ -41,4 +41,5 @@ The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.
 
 ### Changed
 
+- The Airflow metadata database moves from PostgreSQL 17.11 to 18.6 (supported by Airflow 3.3.2), with its volume mounted at `/var/lib/postgresql` as the 18 image expects. `make down` deletes the volume, so there is nothing to migrate.
 - DuckDB moves from 1.5 to 2.0 (`duckdb>=2.0,<3`). A warehouse file written by 2.x cannot be opened by 1.x; rebuild it with `make clean demo`.
