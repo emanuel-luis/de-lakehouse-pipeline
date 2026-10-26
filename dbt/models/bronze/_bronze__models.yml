@@ -2,8 +2,18 @@ version: 2
 
 # Bronze: one deduplicated, deterministic row per natural key (latest _batch_id wins).
 # Uniqueness is asserted here, not in staging, because the landing data keeps duplicates.
+# Elementary tests are table level: schema_changes everywhere, volume_anomalies on the incremental
+# orders table (no timestamp column in bronze, so it compares row counts between runs; it warns
+# because a fresh database has no history).
 models:
   - name: bronze_orders
+    data_tests:
+      - elementary.schema_changes:
+          config:
+            severity: error
+      - elementary.volume_anomalies:
+          config:
+            severity: warn
     description: >
       Orders deduplicated on order_id (latest _batch_id, then latest order_updated_at). Grain: one
       row per order_id. Incremental: each run merges only the landing batches newer than the table,
@@ -65,6 +75,9 @@ models:
     description: >-
       Order lines deduplicated on (order_id, order_item_id). Grain: one row per order line.
     data_tests:
+      - elementary.schema_changes:
+          config:
+            severity: error
       - dbt_utils.unique_combination_of_columns:
           arguments:
             combination_of_columns:
@@ -118,6 +131,10 @@ models:
       - *c_file
 
   - name: bronze_customers
+    data_tests:
+      - elementary.schema_changes:
+          config:
+            severity: error
     description: >-
       Customers deduplicated on customer_id. Grain: one row per customer_id (one per order).
     columns:
@@ -141,6 +158,10 @@ models:
       - *c_file
 
   - name: bronze_products
+    data_tests:
+      - elementary.schema_changes:
+          config:
+            severity: error
     description: >-
       Products deduplicated on product_id. Grain: one row per product_id.
     columns:
@@ -170,6 +191,10 @@ models:
       - *c_file
 
   - name: bronze_sellers
+    data_tests:
+      - elementary.schema_changes:
+          config:
+            severity: error
     description: >-
       Sellers deduplicated on seller_id. Grain: one row per seller_id.
     columns:
@@ -193,6 +218,9 @@ models:
       Reviews deduplicated on (review_id, order_id), because review_id alone repeats across
       orders. Grain: one row per (review_id, order_id).
     data_tests:
+      - elementary.schema_changes:
+          config:
+            severity: error
       - dbt_utils.unique_combination_of_columns:
           arguments:
             combination_of_columns:
@@ -235,6 +263,9 @@ models:
     description: >-
       Payments deduplicated on (order_id, payment_sequential). Grain: one row per payment.
     data_tests:
+      - elementary.schema_changes:
+          config:
+            severity: error
       - dbt_utils.unique_combination_of_columns:
           arguments:
             combination_of_columns:
@@ -269,6 +300,10 @@ models:
       - *c_file
 
   - name: bronze_geolocation
+    data_tests:
+      - elementary.schema_changes:
+          config:
+            severity: error
     description: >
       Geolocation collapsed to one row per zip prefix: coordinates are the average over the
       source rows (rounded to 6 decimals), city and state the most frequent pair with ties going to
@@ -305,6 +340,10 @@ models:
       - *c_file
 
   - name: bronze_category_translation
+    data_tests:
+      - elementary.schema_changes:
+          config:
+            severity: error
     description: >-
       Category translations deduplicated on product_category_name. Grain: one row per Portuguese category name.
     columns:

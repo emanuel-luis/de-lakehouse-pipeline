@@ -7,15 +7,23 @@ FROM ghcr.io/astral-sh/uv:0.13.5 AS uv
 FROM ${AIRFLOW_IMAGE} AS builder
 USER root
 COPY --from=uv /uv /usr/local/bin/uv
-ENV UV_PYTHON_DOWNLOADS=never UV_LINK_MODE=copy
+# DO_NOT_TRACK turns off dbt's anonymous usage events for every dbt call of the build.
+ENV UV_PYTHON_DOWNLOADS=never UV_LINK_MODE=copy DO_NOT_TRACK=1
 WORKDIR /build
 COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY src ./src
-RUN uv export --frozen --no-dev --no-emit-project --output-file requirements.txt \
+# The site group brings edr (the Elementary report) into the same venv.
+RUN uv export --frozen --no-dev --group site --no-emit-project --output-file requirements.txt \
     && uv venv --python "$(command -v python)" /opt/lakehouse-venv \
     && uv pip install --python /opt/lakehouse-venv/bin/python --require-hashes -r requirements.txt \
     && uv build --wheel --out-dir dist \
     && uv pip install --python /opt/lakehouse-venv/bin/python --no-deps dist/*.whl
+
+# edr runs its own internal dbt project from the installed package, which ships without its dbt
+# packages; edr runs `dbt deps` for it at the first report unless they are already there and
+# match the pinned Elementary version.
+RUN /opt/lakehouse-venv/bin/dbt deps --project-dir \
+    "$(/opt/lakehouse-venv/bin/python -c 'import elementary.monitor, os; print(os.path.dirname(elementary.monitor.__file__))')/dbt_project"
 
 # Bake dbt packages and the manifest the Cosmos DAG renders from (no dbt call at DAG parse time).
 COPY dbt /opt/airflow/dbt

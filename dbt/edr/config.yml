@@ -1,0 +1,3 @@
+# Global settings for the edr CLI (make site passes this directory with --config-dir).
+anonymous_usage_tracking: false
+disable_elementary_version_check: true

@@ -5,3 +5,14 @@ de_lakehouse_pipeline:
       type: duckdb
       path: "{{ env_var('LAKEHOUSE_DUCKDB_PATH', '../data/warehouse/lakehouse.duckdb') }}"
       threads: 4
+
+# Used by edr (make site) to read the tables Elementary writes. Same file as the main profile;
+# the schema is the one `+schema: elementary` resolves to.
+elementary:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "{{ env_var('LAKEHOUSE_DUCKDB_PATH', '../data/warehouse/lakehouse.duckdb') }}"
+      schema: elementary
+      threads: 4
