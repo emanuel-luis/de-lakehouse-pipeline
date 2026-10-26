@@ -1,0 +1,20 @@
+# Build context is the repo root (see docker-compose.yml). Keep generated data and secrets out.
+.git
+.github
+.venv
+.env
+data
+dbt/target
+dbt/dbt_packages
+dbt/logs
+logs
+docs
+site
+.hypothesis
+.coverage
+**/__pycache__
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+airflow/tests
+.worktrees

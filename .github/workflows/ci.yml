@@ -2,7 +2,8 @@ name: ci
 
 # Lint gates the rest. `test` runs the fast suite with the coverage gate; `pipeline` runs the whole
 # demo (synthetic source -> landing -> dbt build -> summary), the CDC demo and the slow end-to-end
-# tests, with no credentials.
+# tests, with no credentials; `dags` runs the Airflow DAG integrity test (make dag-test). The docker
+# compose smoke test lives in compose.yml.
 on:
   push:
     branches: [main]
@@ -83,3 +84,18 @@ jobs:
             ${{ runner.temp }}/data/_meta
           if-no-files-found: warn
           retention-days: 7
+
+  dags:
+    name: dags (make dag-test, Airflow 3.3.2 + Cosmos 1.15.1)
+    needs: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with: { python-version: "3.12" }
+      - run: uv sync --locked
+      # dag-test runs airflow-manifest first (dbt deps + parse), then the integrity test in a
+      # throwaway Airflow venv under the 3.3.2 constraints, outside uv.lock
+      - run: make dag-test
