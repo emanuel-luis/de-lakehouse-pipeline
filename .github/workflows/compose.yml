@@ -32,7 +32,8 @@ jobs:
   compose:
     name: compose (stack up, import errors, dags test)
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    # Budget: build ~5 min, dags test ~15 min, scheduled run wait up to 32 min, teardown ~3 min.
+    timeout-minutes: 60
     permissions:
       contents: read
     steps:
@@ -75,7 +76,9 @@ jobs:
         run: |
           docker compose exec -T scheduler airflow dags unpause lakehouse_pipeline
           state=""
-          for _ in $(seq 1 120); do
+          # A local run took 1084 s before the Cosmos tasks skipped the per-call artifacts upload,
+          # which saves about 2.6 s in each of 75 calls: projected ~900 s, so wait twice that.
+          for _ in $(seq 1 192); do
             sleep 10
             # read the metadata DB: the Airflow CLI prints warnings on stdout around its JSON
             state="$(docker compose exec -T postgres psql -U airflow -d airflow -tAc \
@@ -85,7 +88,7 @@ jobs:
             case "$state" in success|failed) break ;; esac
           done
           docker compose exec -T scheduler airflow dags pause lakehouse_pipeline
-          [ "$state" = success ] || { echo "the scheduled run did not succeed within 20 min" >&2; exit 1; }
+          [ "$state" = success ] || { echo "the scheduled run did not succeed within 32 min" >&2; exit 1; }
       - name: Dump compose logs
         if: failure()
         run: docker compose logs --no-color --tail=300

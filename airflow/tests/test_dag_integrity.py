@@ -79,6 +79,18 @@ def test_elementary_tasks_order_and_pool(dagbag: DagBag) -> None:
         assert "edr_report" in task.downstream_task_ids, task.task_id
 
 
+def test_artifacts_upload_once_per_run(dagbag: DagBag) -> None:
+    """Only elementary_models uploads dbt artifacts; every Cosmos task skips it, not run results."""
+    dag = dagbag.dags.get(DAG_ID)
+    assert dag is not None
+    cosmos = [t for t in dag.tasks if t.task_id.startswith("dbt.")]
+    assert cosmos
+    for task in cosmos:
+        assert task.vars == {"disable_dbt_artifacts_autoupload": True}, task.task_id
+    command = dag.get_task("elementary_models").bash_command
+    assert "disable_" not in command and "--vars" not in command
+
+
 def test_no_task_comes_from_the_elementary_package(dagbag: DagBag) -> None:
     """Cosmos task ids carry the dbt node name; package models are `elementary.*` models, which
     the project does not define, so none of the package's model names may appear."""
