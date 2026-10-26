@@ -48,9 +48,9 @@ with DAG(
         task_id="ingest", bash_command=f"{LAKEHOUSE_BIN} ingest --mode incremental"
     )
 
-    # Builds Elementary's own tables (the package models, which Cosmos does not render). Its
-    # on-run-end hook also uploads the dbt artifacts (models, tests, sources) once per DAG run:
-    # the Cosmos tasks below set disable_dbt_artifacts_autoupload, so this task must not.
+    # Builds Elementary's own tables (the package models, which Cosmos does not render). The
+    # post-hooks of its artifact models (dbt_models, dbt_tests, ...) upload the whole project's
+    # dbt artifacts here, once per DAG run, so the Cosmos tasks below can skip that upload.
     elementary_models = BashOperator(
         task_id="elementary_models",
         bash_command=f"{DBT_BIN} run --select elementary {DBT_FLAGS}",

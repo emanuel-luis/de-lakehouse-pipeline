@@ -7,7 +7,8 @@ FROM ghcr.io/astral-sh/uv:0.13.5 AS uv
 FROM ${AIRFLOW_IMAGE} AS builder
 USER root
 COPY --from=uv /uv /usr/local/bin/uv
-ENV UV_PYTHON_DOWNLOADS=never UV_LINK_MODE=copy
+# DO_NOT_TRACK turns off dbt's anonymous usage events for every dbt call of the build.
+ENV UV_PYTHON_DOWNLOADS=never UV_LINK_MODE=copy DO_NOT_TRACK=1
 WORKDIR /build
 COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY src ./src
