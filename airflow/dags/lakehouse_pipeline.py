@@ -26,6 +26,9 @@ DBT_MANIFEST = Path(
 )
 DBT_BIN = os.environ.get("LAKEHOUSE_DBT_BIN", "/opt/lakehouse-venv/bin/dbt")
 LAKEHOUSE_BIN = os.environ.get("LAKEHOUSE_BIN", "/opt/lakehouse-venv/bin/lakehouse")
+EDR_BIN = os.environ.get("LAKEHOUSE_EDR_BIN", "/opt/lakehouse-venv/bin/edr")
+SITE_DIR = Path(os.environ.get("LAKEHOUSE_DATA_DIR", "/opt/airflow/data")) / "site" / "elementary"
+DBT_FLAGS = f"--project-dir {DBT_PROJECT_DIR} --profiles-dir {DBT_PROJECT_DIR}"
 POOL = "duckdb_writer"
 
 with DAG(
@@ -45,6 +48,13 @@ with DAG(
         task_id="ingest", bash_command=f"{LAKEHOUSE_BIN} ingest --mode incremental"
     )
 
+    # Builds Elementary's own tables (the package models, which Cosmos does not render).
+    elementary_models = BashOperator(
+        task_id="elementary_models",
+        bash_command=f"{DBT_BIN} run --select elementary {DBT_FLAGS}",
+        pool=POOL,
+    )
+
     # Every dbt process opens DuckDB for writing, so the 1-slot pool covers every Cosmos task.
     dbt = DbtTaskGroup(
         group_id="dbt",
@@ -60,7 +70,9 @@ with DAG(
         # all of them, as in `dbt build`; otherwise it would run with the first parent built and
         # fail on a table that does not exist yet.
         render_config=RenderConfig(
-            load_method=LoadMode.DBT_MANIFEST, should_detach_multiple_parents_tests=True
+            load_method=LoadMode.DBT_MANIFEST,
+            exclude=["package:elementary"],
+            should_detach_multiple_parents_tests=True,
         ),
         execution_config=ExecutionConfig(
             execution_mode=ExecutionMode.LOCAL,
@@ -70,4 +82,16 @@ with DAG(
         operator_args={"pool": POOL, "append_env": True},
     )
 
-    source >> cdc_simulate >> ingest >> dbt
+    # edr reads the tables the dbt tasks filled and writes the report for the Pages site.
+    edr_report = BashOperator(
+        task_id="edr_report",
+        bash_command=(
+            f"mkdir -p {SITE_DIR} && {EDR_BIN} report {DBT_FLAGS} --config-dir {DBT_PROJECT_DIR}/edr "
+            f"--file-path {SITE_DIR}/index.html --open-browser false"
+        ),
+        pool=POOL,
+    )
+
+    # Elementary's on-run-end hook runs in every dbt call and its tests read the package tables,
+    # so those tables must exist before the first Cosmos task.
+    source >> cdc_simulate >> ingest >> elementary_models >> dbt >> edr_report

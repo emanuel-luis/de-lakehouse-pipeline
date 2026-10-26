@@ -11,7 +11,8 @@ ENV UV_PYTHON_DOWNLOADS=never UV_LINK_MODE=copy
 WORKDIR /build
 COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY src ./src
-RUN uv export --frozen --no-dev --no-emit-project --output-file requirements.txt \
+# The site group brings edr (the Elementary report) into the same venv.
+RUN uv export --frozen --no-dev --group site --no-emit-project --output-file requirements.txt \
     && uv venv --python "$(command -v python)" /opt/lakehouse-venv \
     && uv pip install --python /opt/lakehouse-venv/bin/python --require-hashes -r requirements.txt \
     && uv build --wheel --out-dir dist \
