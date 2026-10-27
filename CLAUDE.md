@@ -20,6 +20,7 @@ Run everything through `make` (needs bash, make and uv: Linux, macOS or WSL).
 - `make dag-test`: DAG integrity test in a throwaway Airflow 3.3.2 + Cosmos venv outside `uv.lock`. The venv path is `AIRFLOW_VENV` (default `~/.venvs/de-lakehouse-airflow`), the constraints URL is `AIRFLOW_CONSTRAINTS`. Exactly what the CI `dags` job runs.
 - `make site`: builds `site/` (dbt docs, Elementary report, landing page) from the current warehouse; run `make demo` or `make cdc-demo` first. Needs the `site` dependency group (`uv sync --locked --group site`; edr runs through `uv run --locked --group site`).
 - `make clean`: deletes generated data under `data/` and dbt build output.
+- `make d2-install`: installs the pinned D2 (`D2_VERSION`, sha256-checked `D2_SHA256`, Linux x86_64) into `~/.local/share/d2/v<version>`. `make diagrams`: renders every `docs/diagrams/*.d2` (not `_*.d2`) to SVG. `make diagrams-check`: renders, then fails on a stale, missing or orphan SVG; exactly what the CI `diagrams` job runs. `make diagrams-watch NAME=<name>`: `d2 --watch` live preview; `NAME` is read only from the command line (WSL exports `NAME` as the hostname).
 - `make demo DATA_SOURCE=kaggle`: real Olist data; needs `KAGGLE_API_TOKEN` (in `.env` or exported). Values in `.env` override shell variables for make (GNU make precedence), command-line variables override both; that is why every assignment in `.env.example` is commented out.
 
 Calling dbt directly: `uv run dbt <cmd> --project-dir dbt --profiles-dir dbt`.
@@ -31,11 +32,12 @@ Env vars read by Python and dbt: `LAKEHOUSE_DATA_DIR`, `LAKEHOUSE_DUCKDB_PATH`. 
 - `src/de_lakehouse_pipeline/`: ingestion package. `settings.py` (env config), `contracts.py` (typed contract per table), `sources/` (synthetic generator, Kaggle fetch), `landing.py` (read, validate, reject split, watermark slice, atomic writes), `runlog.py` (run log, `last_watermark`) and `ingest.py` (orchestration, full and incremental modes), `cdc.py` (source change simulator), `summary.py`, `cli.py` (entry point `lakehouse`, no logic).
 - `dbt/`: `models/staging` (views, `stg_olist__*`, one per landing table), `models/bronze` (tables, `bronze_*`, deduplicated; `bronze_orders` incremental), `models/intermediate` (views, `int_*`), `models/marts` (`fct_orders`, `fct_order_items`, `dim_customers`, `dim_products`, `dim_sellers`, `dim_dates`), `macros/generate_schema_name.sql`, `tests/generic/` (`reconciles_with_ingest_log`), `tests/singular/`, `profiles.yml` (single target `dev`, plus the `elementary` profile for edr), `edr/config.yml` (edr settings).
 - `docs/`: plan, decision log, `architecture.md`, and `site/index.html` (landing page copied into the published site).
+- `docs/diagrams/`: D2 sources and their committed SVGs: `architecture`, `data-flow`, `data-model` (marts keys), `user-flows-make-demo`, `user-flows-airflow-run`, `user-flows-cdc-run`. `_style.d2` holds the `d2-config` (ELK, theme 0 plus dark theme 200, pad, color overrides) and the classes every diagram uses.
 - `tests/`: pytest suite; `test_cdc_e2e.py` is the `slow` dbt round trip.
 - `data/`: generated output (source, landing, rejects, `_meta`, warehouse). Only `.gitkeep` is tracked.
 - `airflow/`: `Dockerfile` (image with the DAG, dbt project, manifest and pipeline venv baked in), `dags/lakehouse_pipeline.py` (source, cdc_simulate, ingest, elementary_models, dbt task group, edr_report), `tests/test_dag_integrity.py`.
 - `docker-compose.yml`: local Airflow stack (Postgres, init, API server, scheduler, DAG processor; LocalExecutor).
-- `.github/workflows/`: `ci.yml` (lint, test, pipeline, dags, site, deploy-pages), `compose.yml` (stack smoke test), `security.yml`.
+- `.github/workflows/`: `ci.yml` (lint, test, pipeline, dags, diagrams, site, deploy-pages), `compose.yml` (stack smoke test), `security.yml`.
 
 ## Invariants
 
@@ -60,5 +62,6 @@ Env vars read by Python and dbt: `LAKEHOUSE_DATA_DIR`, `LAKEHOUSE_DUCKDB_PATH`. 
 - Bronze is deterministic: no wall-clock columns, and every dedup or tie-break has a total order, so re-runs give identical data. Uniqueness is asserted in bronze, not in staging (landing keeps duplicates). Time-bound data tests use the `source_window_max` var, never the current date.
 - dbt 1.12: generic test arguments go under `arguments:`. dbt-duckdb `external_location` goes under `config:`.
 - Keep `uv.lock` in sync (`uv lock`); CI uses `--locked`. DuckDB is on 2.x (DECISIONS 13): a warehouse file written by 2.x is not readable by 1.x, so rebuild it with `make clean demo` after a downgrade. DuckDB 2 relations (`con.sql(...)`) have no `fetchone()` or `fetchmany()`, and mypy does not flag it; fetch from `con.execute(...)` instead.
+- Diagrams are D2 only (no Mermaid). Each `.d2` starts with `...@_style`, uses its classes (`process`, `source`, `store`, `serving`, `actor`, `external`, `check`; `meta` for dashed edges) and never sets a fill color: explicit colors do not switch in dark mode, so each kind is a shape whose theme color `_style.d2` overrides for light and dark. Legends are hand-made containers (`class: legend`), because D2's `d2-legend` stays white in dark mode. ELK ignores `direction` on containers and lays out grids badly, so keep containers flat. About 25 nodes per diagram at most, and a rendered width of about 1,300 px at most: GitHub scales an image down to its ~980 px column, and wider text gets too small to read. Commit the `.d2` and the `.svg` together; never edit an SVG by hand.
 - Conventional Commits in English. One PR per phase (PR1 to PR4 are in the code; PR5 is observability and the Pages site).
 - Do not document features that are not implemented as if they were. Docs written for readers stay in English.

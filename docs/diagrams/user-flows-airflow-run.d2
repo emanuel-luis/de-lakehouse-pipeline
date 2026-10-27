@@ -1,0 +1,33 @@
+# A scheduled run of the DAG lakehouse_pipeline. Grounded in airflow/dags/lakehouse_pipeline.py
+# and docker-compose.yml (LocalExecutor, pool duckdb_writer, volume lakehouse-data).
+...@_style
+
+run: "Scheduled Airflow run of lakehouse_pipeline" {
+  shape: sequence_diagram
+  style: {font-size: 24; bold: true}
+
+  sched: "Airflow scheduler\n(LocalExecutor)" {class: process}
+  pg: "PostgreSQL\nmetadata DB" {class: store}
+  cli: "lakehouse CLI\n(in the image)" {class: process}
+  dbt: "dbt\n(in the image)" {class: process}
+  edr: "edr CLI" {class: process}
+  volume: "volume\nlakehouse-data" {class: store}
+
+  sched -> sched: "@hourly: new run;\none at a time,\nno catchup"
+  sched -> pg: "run and task states" {class: meta}
+  sched -> cli: "task source:\nsource --if-missing"
+  cli -> volume: "source CSVs,\nonly if missing"
+  sched -> cli: "task cdc_simulate:\ncdc simulate"
+  cli -> volume: "change the source\nCSVs in place"
+  sched -> cli: "task ingest: ingest\n--mode incremental"
+  cli -> volume: "landing batch, rejects,\ningest log rows"
+  sched -> dbt: "task elementary_models:\ndbt run --select elementary"
+  dbt -> volume: "Elementary tables;\ndbt artifacts, once"
+  cosmos: "Cosmos task group: one task per model and test, pool duckdb_writer (1 slot)" {
+    sched -> dbt: "next task: dbt run or\ndbt test for one node"
+    dbt -> volume: "write DuckDB;\nhook stores results"
+  }
+  sched -> edr: "task edr_report\n(pool duckdb_writer)"
+  edr -> volume: "read results, write\nsite/elementary/"
+  sched -> pg: "run state" {class: meta}
+}

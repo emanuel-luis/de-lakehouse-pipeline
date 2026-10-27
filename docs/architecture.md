@@ -2,21 +2,11 @@
 
 A short tour of how the pieces fit. The README has the commands, [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) has the design contract and [DECISIONS.md](DECISIONS.md) has the reasons behind each choice.
 
-```mermaid
-flowchart LR
-  SRC["Source CSVs"] --> ING["lakehouse ingest (Polars)"]
-  ING --> LAND[("Landing Parquet")]
-  ING --> LOG[("Ingest log")]
-  LOG -. watermark .-> ING
-  LAND --> DBT["dbt on DuckDB<br/>staging, bronze, intermediate, marts"]
-  DBT --> WH[("DuckDB warehouse")]
-  DBT --> ELM["Elementary tables<br/>schema elementary"]
-  WH --> DOCS["dbt docs --static"]
-  ELM --> EDR["edr report"]
-  DOCS --> SITE["site/"]
-  EDR --> SITE
-  SITE --> PAGES["GitHub Pages"]
-```
+![Architecture: an operator runs the pipeline with make; GitHub Actions runs it on synthetic data and smoke-tests the Airflow 3 compose stack, whose hourly DAG runs the same lakehouse CLI and dbt; dbt is the only writer of the DuckDB warehouse, and the site is published to GitHub Pages](diagrams/architecture.svg)
+
+![Data flow: source CSVs pass the typed contracts of lakehouse ingest into landing Parquet, rejects and the ingest log; dbt reads landing into staging, bronze, intermediate and marts, with the tests of each layer beside it; Elementary results and the dbt docs make up the GitHub Pages site](diagrams/data-flow.svg)
+
+Sources: [architecture.d2](diagrams/architecture.d2) and [data-flow.d2](diagrams/data-flow.d2). The user flows (`make demo`, a scheduled Airflow run, the CDC run) and the marts star schema are in the [README](../README.md); every source is in [diagrams/](diagrams/).
 
 ## Layers and contracts
 
