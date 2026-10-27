@@ -1,0 +1,36 @@
+# The CDC incremental run of `make cdc-demo`, after `make demo`. Grounded in
+# src/de_lakehouse_pipeline/{cdc,ingest,runlog,landing}.py and dbt/models/bronze/bronze_orders.sql.
+...@_style
+
+cdc: "CDC: an incremental run driven by the watermark" {
+  shape: sequence_diagram
+  style: {font-size: 24; bold: true}
+
+  operator: "Operator\n(make cdc-demo)" {class: actor}
+  cli: "lakehouse CLI" {class: process}
+  source: "Source CSVs" {class: source}
+  log: "Ingest log" {class: store}
+  landing: "Landing\nParquet" {class: store}
+  dbt: dbt {class: process}
+  warehouse: "bronze_orders\nand marts" {class: store}
+
+  operator -> cli: "cdc simulate"
+  cli -> source: "up to 50 orders move\none step, 20 new orders;\nclock: latest timestamp\n+ 1 h, not the wall clock"
+  operator -> cli: "ingest --mode\nincremental"
+  cli -> log: "last watermark\nof orders"
+  log -> cli: "highest watermark_to\nsince the latest\nsuccessful full load" {class: meta}
+  cli -> source: "keep orders past the\nwatermark; other\ntables load in full"
+  cli -> landing: "orders/batch-<run_id>\n.parquet"
+  cli -> log: "row with watermark_from\nand watermark_to"
+  operator -> dbt: "dbt build"
+  dbt -> log: "pre-hook: a full load of\norders newer than\nmax(_batch_id)?"
+  log -> dbt: "no: keep the table" {class: meta}
+  dbt -> landing: "batches with _batch_id\n> max(_batch_id)"
+  dbt -> warehouse: "delete+insert on\norder_id; fct_orders\ngains the new orders"
+  again: "Second incremental run, no new changes" {
+    operator -> cli: "ingest --mode\nincremental"
+    cli -> log: "0 rows: no file,\nwatermark kept,\nsuccess row"
+    operator -> dbt: "dbt build"
+    dbt -> warehouse: "no newer batch:\nmarts unchanged"
+  }
+}

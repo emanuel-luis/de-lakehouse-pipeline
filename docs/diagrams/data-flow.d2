@@ -1,0 +1,86 @@
+# Layers from source to serving, and where contracts, tests, the ingest log and the watermark sit.
+# Grounded in src/de_lakehouse_pipeline/{landing,ingest,runlog}.py, dbt/models/**, the Makefile.
+...@_style
+
+title: "Data flow: source CSVs to marts and the published site" {
+  shape: text
+  near: top-center
+  style: {font-size: 24; bold: true}
+}
+
+direction: down
+
+csv: "Source CSVs · data/source\n9 Olist-named tables" {class: source}
+
+ingest: "Ingestion · lakehouse ingest" {
+  class: group
+  run: "Polars: read as text,\ncast, split valid / rejects\nfull, or incremental (orders)" {class: process}
+  contract: "typed contract per table\nreject ratio > 1%:\ntable fails, exit 1" {class: check}
+}
+
+files: "Files · data/ · atomic writes" {
+  class: group
+  landing: "landing/<table>/\nParquet + _batch_id,\n_extracted_at, _source_file" {class: store}
+  rejects: "rejects/<table>/\n+ _reject_reason" {class: store}
+  log: "_meta/ingest_log/\none row per table and run\nrows_in = out + rejected\nwatermark_from / _to" {class: store}
+}
+
+wh: "DuckDB warehouse · dbt is the only writer" {
+  class: group
+  reconcile: "reconciles_with_ingest_log\non every source table" {class: check}
+  staging: "staging · 9 views\nrename and clean" {class: process}
+  staging_tests: "tests on staging\nnot_null, accepted_values,\nranges" {class: check}
+  bronze: "bronze · 9 tables\none row per key\nbronze_orders incremental,\nemptied by a newer full load" {class: store}
+  bronze_tests: "tests on bronze\nunique, not_null, relationships\nElementary schema_changes,\nvolume_anomalies" {class: check}
+  intermediate: "intermediate · 2 views\nitems and reviews enriched" {class: process}
+  intermediate_tests: "tests on intermediate\ngrain" {class: check}
+  marts: "marts · 6 tables\n2 facts, 4 dimensions" {class: store}
+  marts_tests: "tests on marts\nenforced contracts, key,\nrange, relationships" {class: check}
+
+  staging -> bronze
+  bronze -> intermediate
+  intermediate -> marts
+  bronze -> marts
+  staging -> bronze_tests {class: layer}
+  bronze -> intermediate_tests {class: layer}
+  intermediate -> marts_tests {class: layer}
+}
+
+serving: "Observability and serving" {
+  class: group
+  elementary: "schema elementary\n(same DuckDB file)" {class: store}
+  report: "Elementary\nreport" {class: serving}
+  docs: "dbt docs\n(static)" {class: serving}
+  query: "read-only\nqueries" {class: serving}
+  pages: "GitHub Pages\n(CI, from main)" {class: serving}
+  elementary -> report
+  report -> pages
+  docs -> pages
+}
+
+csv -> ingest.run
+csv -> ingest.contract {class: layer}
+ingest.run -> files.landing: "valid"
+ingest.run -> files.rejects: "rejected"
+ingest.run -> files.log: "after the data"
+files.log -> ingest.run: "last watermark" {class: meta}
+files.landing -> wh.staging
+files.landing -> wh.staging_tests {class: layer}
+files.landing -> wh.reconcile {class: meta}
+files.log -> wh.reconcile {class: meta}
+files.log -> wh.bronze {class: meta}
+files.log -> wh.bronze_tests {class: layer}
+wh -> serving.elementary: "on-run-end hook" {class: meta}
+wh -> serving.docs
+wh.marts -> serving.query
+
+legend: Legend {
+  class: legend
+  grid-columns: 3
+  source: source files {class: [source; legend-item]}
+  process: process or view {class: [process; legend-item]}
+  store: stored data or table {class: [store; legend-store]}
+  check: contract or test {class: [check; legend-item]}
+  serving: serving {class: [serving; legend-item]}
+  edges: "solid arrow: data\ndashed: metadata or control" {shape: text; style.font-size: 13}
+}
