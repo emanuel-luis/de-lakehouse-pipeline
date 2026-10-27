@@ -1,0 +1,32 @@
+# Operator journey: `make demo` from a fresh clone. Grounded in the Makefile (demo target),
+# src/de_lakehouse_pipeline/{cli,ingest,summary}.py and dbt/.
+...@_style
+
+demo: "make demo: one command from a fresh clone" {
+  shape: sequence_diagram
+  style: {font-size: 24; bold: true}
+
+  operator: Operator {class: actor}
+  make: make {class: process}
+  cli: "lakehouse CLI" {class: process}
+  files: "data/ files" {class: store}
+  dbt: dbt {class: process}
+  duckdb: "DuckDB\nwarehouse" {class: store}
+
+  operator -> make: "make demo"
+  make -> cli: "lakehouse source"
+  cli -> files: "9 source CSVs: seeded\ngenerator, or Kaggle with\nDATA_SOURCE=kaggle"
+  make -> cli: "lakehouse ingest"
+  cli -> files: "read the CSVs as text,\ncast per contract"
+  cli -> files: "landing and rejects Parquet\n(temp file, os.replace)"
+  cli -> files: "ingest log rows (one per\ntable), after the data"
+  make -> dbt: "dbt deps"
+  make -> dbt: "dbt build"
+  dbt -> files: "read landing and the\ningest log (read_parquet)"
+  dbt -> duckdb: "build staging, bronze,\nintermediate, marts;\ntest model by model"
+  dbt -> duckdb: "Elementary hook stores\nrun and test results"
+  make -> cli: "lakehouse summary"
+  cli -> files: "read the last ingest run"
+  cli -> duckdb: "read-only connection:\nmart row counts"
+  cli -> operator: "run summary; a second\nmake demo gives\nidentical data" {class: meta}
+}

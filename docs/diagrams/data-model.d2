@@ -1,0 +1,64 @@
+# Marts star schema, keys only: dbt/models/marts/_marts__models.yml (enforced contracts). Keys
+# follow the unique, not_null, unique_combination_of_columns and relationships tests there; every
+# arrow is one relationships test. The full column list lives in the dbt docs.
+...@_style
+
+title: "Marts star schema: facts, dimensions and their keys" {
+  shape: text
+  near: top-center
+  style: {font-size: 24; bold: true}
+}
+
+note: "Schema marts in DuckDB, contracts enforced. Keys only: every column\nwith its type and description is in the dbt docs on the Pages site." {
+  shape: text
+  near: bottom-center
+  style.font-size: 14
+}
+
+direction: right
+
+fct_order_items: {
+  shape: sql_table
+  order_id: varchar {constraint: [primary_key; foreign_key]}
+  order_item_id: bigint {constraint: primary_key}
+  product_id: varchar {constraint: foreign_key}
+  seller_id: varchar {constraint: foreign_key}
+  customer_unique_id: varchar {constraint: foreign_key}
+  order_date_key: integer {constraint: foreign_key}
+}
+
+fct_orders: {
+  shape: sql_table
+  order_id: varchar {constraint: primary_key}
+  customer_unique_id: varchar {constraint: foreign_key}
+  order_date_key: integer {constraint: foreign_key}
+}
+
+dim_products: {
+  shape: sql_table
+  product_id: varchar {constraint: primary_key}
+}
+
+dim_sellers: {
+  shape: sql_table
+  seller_id: varchar {constraint: primary_key}
+}
+
+dim_customers: {
+  shape: sql_table
+  customer_unique_id: varchar {constraint: primary_key}
+}
+
+dim_dates: {
+  shape: sql_table
+  date_key: integer {constraint: primary_key}
+  date_day: date {constraint: unique}
+}
+
+fct_order_items.order_id -> fct_orders.order_id
+fct_order_items.product_id -> dim_products.product_id
+fct_order_items.seller_id -> dim_sellers.seller_id
+fct_order_items.customer_unique_id -> dim_customers.customer_unique_id
+fct_order_items.order_date_key -> dim_dates.date_key
+fct_orders.customer_unique_id -> dim_customers.customer_unique_id
+fct_orders.order_date_key -> dim_dates.date_key

@@ -1,0 +1,64 @@
+# The system in context: actors, external systems and the containers that run the pipeline.
+# Grounded in the Makefile, src/de_lakehouse_pipeline/cli.py, airflow/, docker-compose.yml and
+# .github/workflows/. Layer detail is in data-flow.d2.
+...@_style
+
+title: "Architecture: one pipeline, run by make, CI or Airflow" {
+  shape: text
+  near: top-center
+  style: {font-size: 24; bold: true}
+}
+
+direction: down
+
+operator: Operator {class: actor}
+kaggle: "Kaggle\nOlist dataset (opt-in)" {class: external}
+visitor: Site visitor {class: actor}
+
+airflow: "Airflow 3.3.2 · docker compose · volume lakehouse-data" {
+  class: group
+  ui: "api-server\nUI on 127.0.0.1:8080" {class: process}
+  sched: "scheduler,\ndag-processor" {class: process}
+  pg: "PostgreSQL 18\nmetadata DB" {class: store}
+  dag: "DAG lakehouse_pipeline\n@hourly, one run at a time\nCosmos: a task per dbt node,\npool duckdb_writer (1 slot)" {class: process}
+  sched -> dag: "runs"
+  sched -> pg {class: meta}
+  ui -> pg {class: meta}
+}
+
+actions: "GitHub Actions\nci.yml, compose.yml,\nsecurity.yml" {class: external}
+pages: "GitHub Pages\npublished by CI\nfrom main" {class: serving}
+
+pipeline: "Pipeline code · src/ and dbt/" {
+  class: group
+  cli: "lakehouse CLI (Python, Polars)\nsource, cdc simulate,\ningest, summary" {class: process}
+  files: "data/ files\nsource CSVs, landing, rejects,\ningest log with the watermark" {class: store}
+  dbt: "dbt Core + dbt-duckdb\nmodels, tests, contracts,\nElementary package" {class: process}
+  wh: "DuckDB warehouse\nstaging, bronze, intermediate,\nmarts, elementary" {class: store}
+  site: "site/ (make site)\ndbt docs, Elementary report,\nlanding page" {class: serving}
+  cli -> files: "writes"
+  files -> dbt: "read_parquet"
+  dbt -> wh: "the only writer"
+  wh -> site: "docs generate,\nedr report"
+}
+
+operator -> pipeline.cli: "make demo, cdc-demo"
+operator -> airflow.ui: "make up, trigger"
+kaggle -> pipeline.cli: "DATA_SOURCE=kaggle"
+airflow.dag -> pipeline.cli: "bash tasks"
+airflow.dag -> pipeline.dbt
+actions -> pipeline.cli: "lint, tests, demos\non synthetic data"
+actions -> airflow: "compose smoke test"
+pipeline.site -> pages
+visitor -> pages
+
+legend: Legend {
+  class: legend
+  grid-columns: 4
+  actor: actor {class: [actor; legend-actor]}
+  external: external system {class: [external; legend-item]}
+  process: process {class: [process; legend-item]}
+  store: stored data {class: [store; legend-store]}
+  serving: serving {class: [serving; legend-item]}
+  edges: "solid arrow: data or a call\ndashed: metadata" {shape: text; style.font-size: 13}
+}
