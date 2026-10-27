@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.
 
 ### Added
 
+- D2 diagrams in `docs/diagrams/` (architecture, data flow, marts keys, and the `make demo`, scheduled Airflow and CDC runs as sequence diagrams), rendered to committed SVGs that follow GitHub's light and dark mode, with a shared `_style.d2`. Make targets `d2-install`, `diagrams`, `diagrams-check` and `diagrams-watch`, and a CI job `diagrams` that fails on a stale SVG and uploads the rendered ones.
+
 - Airflow DAG: `elementary_models` (builds the Elementary package tables) before the Cosmos dbt group and `edr_report` (writes the Elementary report to the data volume) after it, both in pool `duckdb_writer`; the pipeline venv in the image now includes the `site` group (edr).
 - Elementary dbt package 0.26.1: `schema_changes` (error) on every bronze table and `volume_anomalies` (warn) on `bronze_orders`, writing only to schema `elementary`; an `elementary` profile on the same DuckDB file; anonymous tracking off for dbt and for the edr CLI.
 - Dependency group `site` with the edr CLI, and `make site`, which builds `site/` (dbt docs, Elementary report, landing page from `docs/site/index.html`).
@@ -41,5 +43,7 @@ The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.
 
 ### Changed
 
+- The README and `docs/architecture.md` show the D2 diagrams instead of the two inline Mermaid blocks.
+- `make help` lists every target by name, also when `.env` exists and for names with digits.
 - The Airflow metadata database moves from PostgreSQL 17.11 to 18.6 (supported by Airflow 3.3.2), with its volume mounted at `/var/lib/postgresql` as the 18 image expects. `make down` deletes the volume, so there is nothing to migrate.
 - DuckDB moves from 1.5 to 2.0 (`duckdb>=2.0,<3`). A warehouse file written by 2.x cannot be opened by 1.x; rebuild it with `make clean demo`.

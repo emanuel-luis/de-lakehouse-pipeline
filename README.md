@@ -21,26 +21,11 @@ An end-to-end ELT pipeline on open e-commerce data: Polars ingestion with typed 
 
 ## Architecture
 
-```mermaid
-flowchart LR
-  A["Source CSVs<br/>synthetic generator or Kaggle"] --> B["lakehouse ingest<br/>Polars contracts"]
-  B --> C[("Landing Parquet")]
-  B --> D[("Rejects Parquet")]
-  B --> E[("Ingest log")]
-  C --> F["dbt staging<br/>views"]
-  E -. reconciled by a dbt test .-> F
-  F --> G["dbt bronze<br/>deduplicated tables"]
-  K["lakehouse cdc simulate"] -. changes .-> A
-  E -. watermark .-> B
-  G --> I["dbt intermediate<br/>enriched views"]
-  G --> J["dbt marts<br/>tables, enforced contracts"]
-  I --> J
-  J --> H[("DuckDB warehouse")]
-  subgraph AF["Airflow 3 + Cosmos, hourly DAG lakehouse_pipeline"]
-    direction LR
-    S1["source --if-missing"] --> S2["cdc simulate"] --> S3["ingest --mode incremental"] --> S5["dbt run --select elementary"] --> S4["Cosmos DbtTaskGroup<br/>one task per model and test"] --> S6["edr report"]
-  end
-```
+![Architecture: an operator runs the pipeline with make; GitHub Actions runs it on synthetic data and smoke-tests the Airflow 3 compose stack, whose hourly DAG runs the same lakehouse CLI and dbt; dbt is the only writer of the DuckDB warehouse, and the site with the dbt docs and the Elementary report is published to GitHub Pages](docs/diagrams/architecture.svg)
+
+![Data flow: source CSVs pass the typed contracts of lakehouse ingest into landing Parquet, rejects and the ingest log, which also holds the CDC watermark; dbt reads landing into staging, bronze, intermediate and marts, with the tests of each layer beside it; Elementary stores the results, and the dbt docs and the Elementary report make up the GitHub Pages site](docs/diagrams/data-flow.svg)
+
+Diagram sources: [architecture.d2](docs/diagrams/architecture.d2) and [data-flow.d2](docs/diagrams/data-flow.d2) (D2, rendered to SVG; see [Development](#development)).
 
 Python owns source to landing and never writes DuckDB. dbt is the only DuckDB writer: its sources read the landing Parquet directly, so there is one writer and no lock contention. The Airflow DAG runs the same commands in order (see Orchestration); it adds scheduling and per-task visibility, not new logic.
 
@@ -68,6 +53,10 @@ Python owns source to landing and never writes DuckDB. dbt is the only DuckDB wr
 
 Both facts carry foreign keys to the dimensions, checked by relationship tests. Products with no category, or a category missing from the translation table, get the category `unknown`.
 
+![Marts star schema, keys only: fct_order_items (primary key order_id and order_item_id) references fct_orders, dim_products, dim_sellers, dim_customers and dim_dates; fct_orders references dim_customers and dim_dates](docs/diagrams/data-model.svg)
+
+Source: [data-model.d2](docs/diagrams/data-model.d2). Every mart column, with its type and description, is in the dbt docs on the published site.
+
 ## Quickstart
 
 Prerequisites: [uv](https://docs.astral.sh/uv/), `make` and bash (Linux, macOS, or WSL on Windows).
@@ -78,6 +67,10 @@ make demo
 ```
 
 `make demo` writes synthetic source CSVs, ingests them into landing Parquet, installs the dbt packages, runs `dbt build` (models and tests), and prints the last ingest run with the mart row counts. Everything lands under `data/` (gitignored); the warehouse is `data/warehouse/lakehouse.duckdb`.
+
+![Sequence of make demo: make calls lakehouse source, which writes the source CSVs; lakehouse ingest, which writes landing, rejects and then the ingest log rows; dbt deps and dbt build, which read landing and build every layer in DuckDB; and lakehouse summary, which reads the last run and the mart counts through a read-only connection](docs/diagrams/user-flows-make-demo.svg)
+
+Source: [user-flows-make-demo.d2](docs/diagrams/user-flows-make-demo.d2).
 
 Query the marts with a read-only connection (dbt holds the write lock while it runs):
 
@@ -124,6 +117,10 @@ make cdc-demo
 4. `lakehouse summary --watermarks` shows the run, the current watermark and the mart counts: `fct_orders` gains exactly the new orders.
 5. A second incremental ingest finds no rows past the watermark: it writes no file, keeps the watermark and logs a successful run with 0 rows. The next `dbt build` leaves the marts unchanged.
 
+![Sequence of the CDC run: the simulator changes the source CSVs; the incremental ingest reads the last orders watermark from the ingest log, lands only the orders past it as a batch file and logs the new watermark; dbt build checks the log for a newer full load, reads the new batches and merges them into bronze_orders; a second incremental run finds 0 rows and leaves the marts unchanged](docs/diagrams/user-flows-cdc-run.svg)
+
+Source: [user-flows-cdc-run.d2](docs/diagrams/user-flows-cdc-run.d2).
+
 Known limits of this design:
 
 - No hard deletes: a row removed from the source is never removed downstream.
@@ -148,6 +145,10 @@ The DAG `lakehouse_pipeline` (`@hourly`, one active run at a time, no catchup) r
 4. `elementary_models`: `dbt run --select elementary` builds the package's own tables. It runs before the dbt tasks because Elementary's on-run-end hook, which stores results, and its tests read those tables.
 5. A Cosmos task group built from the dbt manifest: one Airflow task per project model and one for its tests. The Elementary package's own models are excluded from it (`exclude=["package:elementary"]`); the project's Elementary tests on bronze still run inside the per-model test tasks. A test that reads two models, such as a relationships test between a fact and a dimension, gets its own task that waits for both, as `dbt build` would. The tests that reconcile each landing table with the ingest log read only sources, so they run as their own tasks right after `ingest`. Elementary's on-run-end hook runs in every one of these dbt calls and stores their results, which adds a few seconds to each. The dbt artifacts (models, tests, sources) are uploaded once per run by `elementary_models`; the group's tasks skip that upload.
 6. `edr_report`: `edr report` reads the results and writes the report to `$LAKEHOUSE_DATA_DIR/site/elementary/index.html` inside the data volume. Nothing publishes it from the stack; the published site is built by CI (see Observability).
+
+![Sequence of a scheduled run: the scheduler starts an hourly run and records it in PostgreSQL, runs the source, cdc_simulate and ingest tasks through the lakehouse CLI against the lakehouse-data volume, then elementary_models, the Cosmos dbt tasks one at a time in the duckdb_writer pool, and edr_report, which writes the Elementary report](docs/diagrams/user-flows-airflow-run.svg)
+
+Source: [user-flows-airflow-run.d2](docs/diagrams/user-flows-airflow-run.d2).
 
 Like any Airflow DAG, it starts paused. Unpause it in the UI, trigger a run there, or use the CLI:
 
@@ -202,6 +203,7 @@ tests/                       pytest suite (hermetic: each test runs in its own t
 airflow/                     Dockerfile, the lakehouse_pipeline DAG and its integrity test
 docker-compose.yml          local Airflow stack: Postgres, scheduler, API server, DAG processor
 docs/                        implementation plan, decision log, architecture notes
+docs/diagrams/               D2 diagram sources, the shared _style.d2 and the rendered SVGs
 docs/site/                   landing page for the published site
 .github/workflows/           ci.yml, compose.yml, security.yml
 Makefile                     single entry point for local runs and CI
@@ -230,8 +232,22 @@ Makefile                     single entry point for local runs and CI
 | `make dag-test` | DAG integrity test in a throwaway Airflow 3.3.2 + Cosmos venv |
 | `make site` | build `site/`: dbt docs, Elementary report, landing page (run `make demo` first; needs `uv sync --locked --group site` once) |
 | `make clean` | delete generated data and dbt build output |
+| `make d2-install` | install the pinned D2 (Linux x86_64) under `~/.local/share/d2`, checksum verified |
+| `make diagrams` | render every `docs/diagrams/*.d2` to SVG |
+| `make diagrams-check` | render, then fail if a committed SVG is stale, missing or has no source (what the CI diagrams job runs) |
+| `make diagrams-watch NAME=<name>` | live preview of one diagram in the browser while you edit it |
 
-CI runs lint (ruff and mypy, strict on `src`), test (pytest with an 80% coverage gate), pipeline (`make demo`, `make cdc-demo` and the slow end-to-end test on synthetic data), dags (`make dag-test`) and site (`make cdc-demo`, `make site`, upload of the Pages artifact). A deploy-pages job publishes the artifact on pushes to main only. A separate compose workflow builds the image, starts the stack, checks that the DAG has no import errors, runs `airflow dags test lakehouse_pipeline`, then unpauses the DAG and waits for one run driven by the scheduler; on pull requests it runs only when `airflow/`, `dbt/`, `src/`, `uv.lock` or the compose file change, and it also runs on pushes to main, weekly and on demand. Configuration is documented in `.env.example`.
+### Diagrams
+
+The diagrams are [D2](https://d2lang.com) sources in `docs/diagrams/`, rendered to SVG next to them and committed, so GitHub shows them without a build. Every diagram imports `_style.d2`, which pins the layout engine (ELK), the light and dark themes and the colors per element kind; the SVGs follow the reader's light or dark mode. D2 is pinned to v0.9.0 in the Makefile.
+
+1. `make d2-install` once (Linux or WSL; elsewhere install D2 v0.9.0 yourself and pass `D2=/path/to/d2`).
+2. Edit a `.d2` file and run `make diagrams-watch NAME=data-flow`: open the URL it prints, and the page reloads on every save. Stop it with Ctrl+C.
+3. `make diagrams`, then commit the `.d2` and the `.svg` together.
+
+The `d2.exe` of the same version on Windows renders byte-identical SVGs, so `d2 --scale 1 docs/diagrams/<name>.d2` works there too.
+
+CI runs lint (ruff and mypy, strict on `src`), test (pytest with an 80% coverage gate), pipeline (`make demo`, `make cdc-demo` and the slow end-to-end test on synthetic data), dags (`make dag-test`), diagrams (`make diagrams-check`, plus the rendered SVGs as an artifact) and site (`make cdc-demo`, `make site`, upload of the Pages artifact). A deploy-pages job publishes the artifact on pushes to main only. A separate compose workflow builds the image, starts the stack, checks that the DAG has no import errors, runs `airflow dags test lakehouse_pipeline`, then unpauses the DAG and waits for one run driven by the scheduler; on pull requests it runs only when `airflow/`, `dbt/`, `src/`, `uv.lock` or the compose file change, and it also runs on pushes to main, weekly and on demand. Configuration is documented in `.env.example`.
 
 ## Roadmap
 
