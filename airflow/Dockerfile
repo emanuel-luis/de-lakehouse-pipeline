@@ -1,7 +1,7 @@
 # Build from the repo root: docker build -f airflow/Dockerfile .
 ARG AIRFLOW_IMAGE=apache/airflow:slim-3.3.2-python3.12@sha256:a54e7bd6c4d7a17e55cd14b0ead257877b8f8111680d2692cbdba2ff32bd3ff3
 
-FROM ghcr.io/astral-sh/uv:0.13.5 AS uv
+FROM ghcr.io/astral-sh/uv:0.13.6 AS uv
 
 # Builder: the pipeline and dbt live in their own venv, isolated from Airflow's dependencies.
 FROM ${AIRFLOW_IMAGE} AS builder
